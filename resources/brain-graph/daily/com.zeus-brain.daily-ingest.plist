@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ZEUS BRAIN Daily Ingest — launchd job triggering the daily routine at 6am.
+
+  Install:
+    cp this file to ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
+    launchctl load ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
+    rm ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.zeus-brain.daily-ingest</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/erichroepke/Cornelius/resources/local-brain-search/venv/bin/python</string>
+        <string>-m</string>
+        <string>daily.cli</string>
+        <string>run</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/erichroepke/Cornelius/resources/brain-graph</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/erichroepke</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/daily-routine.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/daily-routine.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>AbandonProcessGroup</key>
+    <true/>
+</dict>
+</plist>

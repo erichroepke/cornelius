@@ -7,6 +7,8 @@ Never modifies the original brain_graph.pkl from Local Brain Search.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import pickle
 import sys
 from datetime import datetime
@@ -56,10 +58,33 @@ def load_enrichments() -> dict:
 
 
 def save_enrichments(data: dict) -> None:
-    """Save enrichments to JSON."""
+    """Save enrichments to JSON atomically.
+
+    Writes to a temp file in the same directory, then renames over the target.
+    `os.replace` is atomic on POSIX, so a SIGKILL mid-write cannot corrupt the
+    sidecar — the previous version remains intact until the rename completes.
+    """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(ENRICHMENTS_PATH, "w") as f:
-        json.dump(data, f, indent=2, cls=NumpyEncoder)
+    # Use NamedTemporaryFile in the same directory so os.replace is atomic
+    # (must be same filesystem). delete=False because we move it manually.
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=".graph_enrichments.",
+        suffix=".tmp",
+        dir=str(DATA_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, cls=NumpyEncoder)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, ENRICHMENTS_PATH)
+    except Exception:
+        # Best-effort cleanup; ignore unlink failures
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def get_node_enrichment(enrichments: dict, note_id: str) -> NodeEnrichment | None:

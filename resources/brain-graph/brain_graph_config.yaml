@@ -1,0 +1,120 @@
+# Brain Dependency Graph Configuration
+# Source of truth for artifact types, default edges, propagation rules, and lifecycle thresholds.
+# Spec from BRAIN-DEPENDENCY-GRAPH-ARCHITECTURE.md.
+
+artifact_types:
+  signal:
+    layer: 1
+    default_mode: reflective
+    vault_paths: ["wiki/Sources/"]
+    description: "Raw inputs - books, papers, conversations"
+
+  impression:
+    layer: 2
+    default_mode: reflective
+    vault_paths: ["raw/"]
+    description: "First-pass captures, fleeting notes (unindexed)"
+
+  insight:
+    layer: 3
+    default_mode: mixed
+    vault_paths: ["wiki/Permanent/", "wiki/AI Extracted Notes/", "wiki/Document Insights/"]
+    description: "Atomic permanent notes"
+
+  framework:
+    layer: 4
+    default_mode: generative
+    vault_paths: ["wiki/Permanent/"]
+    description: "Original mental models and theories (subset of insights, tagged)"
+
+  lens:
+    layer: 5
+    default_mode: reflective
+    vault_paths: ["wiki/MOCs/"]
+    description: "Maps of Content, navigational indices"
+
+  synthesis:
+    layer: 6
+    default_mode: reflective
+    vault_paths: ["wiki/Output/"]
+    description: "Articles, essays, composed output (lives inside wiki; recycles through raw via daily routine)"
+
+  index:
+    layer: 7
+    default_mode: reflective
+    vault_paths: ["wiki/Meta/"]
+    description: "Structural meta - analysis, changelogs"
+
+default_edges:
+  - from_type: signal
+    to_type: impression
+    edge_type: derives-from
+    authority: source
+
+  - from_type: impression
+    to_type: insight
+    edge_type: derives-from
+    authority: target
+
+  - from_type: insight
+    to_type: framework
+    edge_type: derives-from
+    authority: target
+
+  - from_type: framework
+    to_type: insight
+    edge_type: instantiates
+    authority: source
+
+  - from_type: insight
+    to_type: lens
+    edge_type: derives-from
+    authority: source
+
+  - from_type: framework
+    to_type: synthesis
+    edge_type: instantiates
+    authority: source
+
+  - from_type: insight
+    to_type: synthesis
+    edge_type: derives-from
+    authority: source
+
+propagation:
+  edge_decay:
+    derives-from: 0.8
+    instantiates: 0.7
+    references: 0.2
+    associates: 0.05
+    tension: 0.0
+    supersedes: 1.0
+  distance_decay: [1.0, 0.5, 0.1, 0.0]
+  hub_threshold: 50
+  staleness_threshold: 0.3
+  max_propagation_depth: 3
+
+lifecycle:
+  detection_window_days: 30
+  crystallizing_threshold: 0.3
+  generative_threshold: 0.6
+  signals:
+    citation_frequency:
+      weight: 0.3
+      crystallizing_min: 5
+    generative_ratio:
+      weight: 0.3
+      crystallizing_min: 1.0
+      generative_min: 2.0
+    cross_domain_reach:
+      weight: 0.25
+      crystallizing_min: 2
+      generative_min: 3
+    temporal_acceleration:
+      weight: 0.15
+      crystallizing_min: 0.0
+
+framework_detection:
+  in_degree_min: 8
+  cross_cluster_min: 3
+  generative_ratio_min: 1.5

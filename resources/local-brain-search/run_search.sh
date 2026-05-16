@@ -56,8 +56,8 @@ if curl -s --max-time 0.2 "$DAEMON_URL/health" > /dev/null 2>&1; then
         esac
     done
 
-    # URL-encode query
-    ENCODED_Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$QUERY'))")
+    # URL-encode query (read from stdin to avoid shell-injection via $QUERY)
+    ENCODED_Q=$(printf '%s' "$QUERY" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
 
     URL="$DAEMON_URL/search?q=$ENCODED_Q&limit=$LIMIT&threshold=$THRESHOLD&explain=$EXPLAIN&no_track=$NO_TRACK&full=$FULL"
     [ -n "$MODE" ] && URL="$URL&mode=$MODE"

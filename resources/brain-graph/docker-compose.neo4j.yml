@@ -1,0 +1,37 @@
+services:
+  neo4j:
+    image: neo4j:5
+    container_name: zeus-brain-neo4j
+    # IMPORTANT: do NOT use `env_file:` here. That forwards every key in .env
+    # into the container, and Neo4j auto-translates any NEO4J_* env var into
+    # a neo4j.conf setting. Bare NEO4J_USER / NEO4J_PASS would crash with
+    # "Unrecognized setting." We use BRAIN_* keys in .env and interpolate
+    # them into NEO4J_AUTH below — compose auto-reads .env from the project
+    # directory for $VAR substitution, no env_file needed.
+    environment:
+      NEO4J_AUTH: ${BRAIN_NEO4J_USER:-neo4j}/${BRAIN_NEO4J_PASS:?BRAIN_NEO4J_PASS not set; copy .env.example to .env and edit}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 4G
+      NEO4J_server_memory_pagecache_size: 2G
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
+    volumes:
+      - zeus-neo4j-data:/data
+      - zeus-neo4j-logs:/logs
+      - ./data:/import:ro
+    healthcheck:
+      # HTTP-probe (no auth needed). Once :7474 responds, Neo4j is ready. The
+      # load script later authenticates with BRAIN_NEO4J_PASS via cypher-shell.
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  zeus-neo4j-data:
+  zeus-neo4j-logs:

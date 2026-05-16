@@ -1,0 +1,8 @@
+# Brain-graph MCP server + SDK
+# Install into the Cornelius venv:
+#   source ../local-brain-search/venv/bin/activate
+#   pip install -r requirements-mcp.txt
+
+mcp>=1.0.0           # Official MCP Python SDK (FastMCP)
+neo4j>=5.20          # Neo4j driver (Bolt protocol)
+python-dotenv>=1.0   # Load .env for local dev

@@ -11,6 +11,8 @@ Usage:
     python cli.py tensions                Detect productive contradictions
     python cli.py coherence [--tensions]  Full coherence sweep with report
     python cli.py coherence --json        JSON output instead of markdown
+    python cli.py export-json             Stream raw graph_enrichments.json to stdout
+                                          (for piping into export_to_cypher.py)
 """
 import argparse
 import json
@@ -34,6 +36,22 @@ class NumpyEncoder(json.JSONEncoder):
 def cmd_bootstrap(args):
     from classify import bootstrap
     bootstrap(force=args.force)
+
+
+def cmd_export_json(args):
+    """Stream the raw graph_enrichments.json to stdout.
+
+    Used by export_to_cypher.py and any downstream consumer that wants the
+    sidecar contents without reading the file directly. Exits non-zero if the
+    graph has not been bootstrapped yet.
+    """
+    from store import load_enrichments, ENRICHMENTS_PATH
+    if not ENRICHMENTS_PATH.exists():
+        print(f"Error: {ENRICHMENTS_PATH} not found. Run: python cli.py bootstrap", file=sys.stderr)
+        sys.exit(1)
+    enrichments = load_enrichments()
+    json.dump(enrichments, sys.stdout, indent=2, cls=NumpyEncoder)
+    sys.stdout.write("\n")
 
 
 def cmd_status(args):
@@ -385,6 +403,12 @@ def main():
     p_coherence.add_argument("--no-lifecycle", action="store_true", help="Skip lifecycle computation")
     p_coherence.add_argument("--json", action="store_true", help="JSON output")
 
+    # export-json (Phase F integration: pipe into export_to_cypher.py)
+    p_export_json = subparsers.add_parser(
+        "export-json",
+        help="Stream raw graph_enrichments.json to stdout",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -399,6 +423,7 @@ def main():
         "lifecycle": cmd_lifecycle,
         "tensions": cmd_tensions,
         "coherence": cmd_coherence,
+        "export-json": cmd_export_json,
     }
 
     commands[args.command](args)
