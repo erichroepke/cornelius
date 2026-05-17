@@ -96,9 +96,18 @@ function renderMissing(items) {
   }
 }
 
+function stripFrontmatter(value) {
+  return String(value || "").replace(/^---[\s\S]*?---\s*/m, "").trim();
+}
+
+function resultPreview(item) {
+  return stripFrontmatter(item.preview) || stripFrontmatter(item.title) || stripFrontmatter(item.heading) || "No preview available.";
+}
+
 function resultCard(item) {
   const card = document.createElement("article");
   card.className = "result";
+  const preview = resultPreview(item);
   card.innerHTML = `
     <div class="meta-line">
       <span class="mini">${escapeHtml(item.layer || "unknown")}</span>
@@ -106,7 +115,7 @@ function resultCard(item) {
       ${item.degree !== null && item.degree !== undefined ? `<span class="mini">degree ${fmt(item.degree)}</span>` : ""}
     </div>
     <h4>${escapeHtml(item.id)}</h4>
-    <p>${escapeHtml((item.preview || "").replace(/^---[\\s\\S]*?---\\s*/m, "").trim())}</p>
+    <p>${escapeHtml(preview)}</p>
   `;
   card.addEventListener("click", () => {
     $("nodeInput").value = item.id;
@@ -150,7 +159,7 @@ async function loadNode(idOverride) {
       getJson(`/api/graph?id=${encodeURIComponent(id)}&limit=42`),
     ]);
     setText("selectedLayer", node.props?.layer || "unknown");
-    $("nodePreview").textContent = node.content || `${id}\n\nNo preview available.`;
+    $("nodePreview").textContent = node.content ?? `${id}\n\nNo preview available.`;
     renderGraph(graph);
   } catch (err) {
     $("nodePreview").textContent = err.message;
@@ -181,7 +190,7 @@ function renderGraph(data) {
     const color = n.center ? "#2f6fed" : layerColor(n.layer);
     const label = basename(n.id);
     return `
-      <g class="graph-node" tabindex="0" data-id="${escapeAttr(n.id)}">
+      <g class="graph-node" tabindex="0" data-id="${escapeAttr(encodeURIComponent(n.id))}">
         <circle cx="${n.x}" cy="${n.y}" r="${n.center ? 18 : 11}" fill="${color}" />
         <text x="${n.x}" y="${n.y + (n.center ? 35 : 26)}" text-anchor="middle" fill="#172033" font-size="${n.center ? 12 : 10}" font-weight="${n.center ? 800 : 650}">${escapeSvg(label.slice(0, 34))}</text>
       </g>
@@ -191,7 +200,7 @@ function renderGraph(data) {
   svg.innerHTML = `<rect width="760" height="520" fill="#fbfcff" />${edges}${circles}`;
   svg.querySelectorAll(".graph-node").forEach((el) => {
     el.addEventListener("click", () => {
-      const id = el.getAttribute("data-id");
+      const id = decodeURIComponent(el.getAttribute("data-id") || "");
       $("nodeInput").value = id;
       loadNode(id);
     });

@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import stat
 import subprocess
+import threading
 import sys
 import time
 from http import HTTPStatus
@@ -31,6 +33,19 @@ STATIC_DIR = APP_DIR / "static"
 HOME = Path.home()
 
 
+def load_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
 def first_existing_dir(candidates: list[Path], required_child: str | None = None) -> Path:
     """Return the first candidate directory that exists, optionally with a child."""
     for candidate in candidates:
@@ -41,15 +56,17 @@ def first_existing_dir(candidates: list[Path], required_child: str | None = None
 
 
 CORNELIUS_ROOT = APP_DIR.parents[1]
-BRAIN_ROOT = Path(os.environ["BRAIN_ROOT"]) if os.environ.get("BRAIN_ROOT") else first_existing_dir(
-    [
-        HOME / "Desktop" / "Brain",
-        HOME / "Desktop" / "ZEUS-BRAIN-STARTUP-2026-05-17" / "Brain",
-        HOME / "Desktop" / "Brain-replica",
-        HOME / "Desktop" / "NIKLAS",
-    ],
-    "wiki",
-)
+SETTINGS_PATH = CORNELIUS_ROOT / ".claude" / "settings.md"
+SETTINGS = load_env_file(SETTINGS_PATH)
+_settings_brain_root = Path(SETTINGS["VAULT_BASE_PATH"]).expanduser() if SETTINGS.get("VAULT_BASE_PATH") else None
+_brain_candidates = [
+    *([_settings_brain_root] if _settings_brain_root else []),
+    HOME / "Desktop" / "Brain",
+    HOME / "Desktop" / "ZEUS-BRAIN-STARTUP-2026-05-17" / "Brain",
+    HOME / "Desktop" / "Brain-replica",
+    HOME / "Desktop" / "NIKLAS",
+]
+BRAIN_ROOT = Path(os.environ["BRAIN_ROOT"]) if os.environ.get("BRAIN_ROOT") else first_existing_dir(_brain_candidates, "wiki")
 WIKI_ROOT = BRAIN_ROOT / "wiki"
 BRAIN_GRAPH_DIR = Path(os.environ["BRAIN_GRAPH_DIR"]) if os.environ.get("BRAIN_GRAPH_DIR") else first_existing_dir(
     [
@@ -72,19 +89,6 @@ ENV_PATH = BRAIN_GRAPH_DIR / ".env"
 REGISTRY_PATH = WIKI_ROOT / "Meta" / "consolidation-registry-2026-05-17.json"
 
 
-def load_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
 ENV = load_env_file(ENV_PATH)
 NEO4J_URI = ENV.get("NEO4J_URI") or os.environ.get("NEO4J_URI") or "bolt://localhost:7689"
 NEO4J_USER = ENV.get("NEO4J_USER") or ENV.get("BRAIN_NEO4J_USER") or os.environ.get("NEO4J_USER") or "neo4j"
@@ -94,10 +98,13 @@ PORT = int(os.environ.get("BRAIN_CONSOLE_PORT", "8789"))
 
 
 _driver = None
+_driver_lock = threading.Lock()
 _graph_cache: dict[str, Any] | None = None
 _graph_cache_mtime = 0.0
+_graph_lock = threading.Lock()
 _metadata_cache: list[dict[str, Any]] | None = None
 _metadata_cache_mtime = 0.0
+_metadata_lock = threading.Lock()
 
 
 def json_response(handler: BaseHTTPRequestHandler, payload: Any, status: int = 200) -> None:
@@ -122,9 +129,11 @@ def text_response(handler: BaseHTTPRequestHandler, body: bytes, content_type: st
 def get_driver():
     global _driver
     if _driver is None:
-        if not NEO4J_PASS:
-            raise RuntimeError("Neo4j password not configured in brain-graph .env")
-        _driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
+        with _driver_lock:
+            if _driver is None:
+                if not NEO4J_PASS:
+                    raise RuntimeError("Neo4j password not configured in brain-graph .env")
+                _driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
     return _driver
 
 
@@ -139,9 +148,19 @@ def load_graph() -> dict[str, Any]:
         return {"nodes": {}, "edges": {}, "tensions": []}
     mtime = GRAPH_ENRICHMENTS.stat().st_mtime
     if _graph_cache is None or mtime != _graph_cache_mtime:
-        _graph_cache = json.loads(GRAPH_ENRICHMENTS.read_text(encoding="utf-8"))
-        _graph_cache_mtime = mtime
+        with _graph_lock:
+            if _graph_cache is None or mtime != _graph_cache_mtime:
+                _graph_cache = json.loads(GRAPH_ENRICHMENTS.read_text(encoding="utf-8"))
+                _graph_cache_mtime = mtime
     return _graph_cache
+
+
+def assert_trusted_metadata_file(path: Path) -> None:
+    resolved = path.resolve()
+    resolved.relative_to(LBS_DIR.resolve())
+    mode = resolved.stat().st_mode
+    if mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise RuntimeError(f"Refusing writable pickle metadata file: {resolved}")
 
 
 def load_metadata() -> list[dict[str, Any]]:
@@ -150,9 +169,12 @@ def load_metadata() -> list[dict[str, Any]]:
         return []
     mtime = LBS_METADATA.stat().st_mtime
     if _metadata_cache is None or mtime != _metadata_cache_mtime:
-        with LBS_METADATA.open("rb") as f:
-            _metadata_cache = pickle.load(f)
-        _metadata_cache_mtime = mtime
+        with _metadata_lock:
+            if _metadata_cache is None or mtime != _metadata_cache_mtime:
+                assert_trusted_metadata_file(LBS_METADATA)
+                with LBS_METADATA.open("rb") as f:
+                    _metadata_cache = pickle.load(f)
+                _metadata_cache_mtime = mtime
     return _metadata_cache or []
 
 
@@ -169,8 +191,8 @@ def git_output(args: list[str]) -> str:
 
 
 def is_indexable_markdown(path: Path) -> bool:
-    """True for real markdown notes; false for macOS AppleDouble sidecars."""
-    return path.suffix == ".md" and not any(part.startswith("._") for part in path.parts)
+    """True for real markdown notes; false for macOS AppleDouble and git sidecars."""
+    return path.suffix == ".md" and not any(part.startswith("._") or part == ".git" for part in path.parts)
 
 
 def markdown_paths() -> list[Path]:
@@ -186,15 +208,27 @@ def rel_to_brain(path: Path) -> str:
         return path.as_posix()
 
 
-def read_note_preview(atom_id: str, max_chars: int = 2400) -> str:
+def resolve_brain_file(atom_id: str) -> Path | None:
     path = (BRAIN_ROOT / atom_id).resolve()
     try:
         path.relative_to(BRAIN_ROOT.resolve())
     except ValueError:
-        return ""
+        return None
     if not path.exists() or not path.is_file():
+        return None
+    return path
+
+
+def read_note_text(atom_id: str, max_chars: int | None = None) -> str:
+    path = resolve_brain_file(atom_id)
+    if path is None:
         return ""
-    return path.read_text(encoding="utf-8", errors="replace")[:max_chars]
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        return f.read(max_chars) if max_chars is not None else f.read()
+
+
+def read_note_preview(atom_id: str, max_chars: int = 2400) -> str:
+    return read_note_text(atom_id, max_chars)
 
 
 def index_coverage() -> dict[str, Any]:
@@ -294,30 +328,34 @@ def api_search(query: str, limit: int) -> dict[str, Any]:
         pass
 
     if len(results) < limit:
-        for atom_id, props in nodes.items():
-            if atom_id in seen:
+        for chunk in load_metadata():
+            atom_id = chunk.get("note_id") or ""
+            if not atom_id or atom_id in seen:
                 continue
-            path = BRAIN_ROOT / atom_id
-            text = ""
-            try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
+            content = chunk.get("content") or ""
+            haystack = " ".join(
+                str(chunk.get(key) or "")
+                for key in ("note_id", "title", "heading", "filepath", "content")
+            ).lower()
+            if q not in haystack:
                 continue
-            hit = q in atom_id.lower() or q in text.lower()
-            if hit:
-                results.append(
-                    {
-                        "id": atom_id,
-                        "layer": props.get("layer"),
-                        "lifecycle": props.get("lifecycle"),
-                        "staleness": props.get("staleness_score"),
-                        "degree": None,
-                        "source": "file-content",
-                        "preview": text[:700],
-                    }
-                )
-                if len(results) >= limit:
-                    break
+            props = nodes.get(atom_id, {})
+            results.append(
+                {
+                    "id": atom_id,
+                    "layer": props.get("layer"),
+                    "lifecycle": props.get("lifecycle"),
+                    "staleness": props.get("staleness_score"),
+                    "degree": None,
+                    "source": "semantic-index",
+                    "title": chunk.get("title"),
+                    "heading": chunk.get("heading"),
+                    "preview": content[:700],
+                }
+            )
+            seen.add(atom_id)
+            if len(results) >= limit:
+                break
 
     return {"query": query, "results": results[:limit]}
 
