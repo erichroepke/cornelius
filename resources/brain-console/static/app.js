@@ -24,6 +24,7 @@ function setPanel(name) {
     overview: ["Overview", "Search coverage, graph state, and ingest readiness for the local Brain."],
     search: ["Search", "Find indexed notes by path or content and jump into the graph view."],
     graph: ["Graph", "Inspect a node and its immediate relationships without rendering the whole database."],
+    files: ["Files", "Inspect mounted volumes, registered sources, chunk coverage, and sync drift."],
     sources: ["Sources", "Show the consolidation registry and source coverage."],
     health: ["Health", "Check what is indexed, what is missing, and which services are alive."],
   };
@@ -247,6 +248,139 @@ async function loadSources() {
   }
 }
 
+async function loadFiles() {
+  setText("volumeCount", "loading");
+  setText("registeredSourceCount", "loading");
+  $("volumeList").innerHTML = `<div class="notice"><strong>Scanning mounted volumes...</strong><span>Shallow scan only; no recursive RAID walk.</span></div>`;
+  $("registeredSources").innerHTML = `<div class="notice"><strong>Loading registry...</strong><span>Checking source paths against the current machine.</span></div>`;
+  try {
+    const data = await getJson("/api/files");
+    renderFiles(data);
+  } catch (err) {
+    $("volumeList").innerHTML = `<div class="notice danger"><strong>Files overview failed</strong><span>${escapeHtml(err.message)}</span></div>`;
+  }
+}
+
+function renderFiles(data) {
+  const index = data.file_index || {};
+  const volumes = data.volumes || [];
+  const sources = data.sources || [];
+
+  setText("filesIndexedCount", `${fmt(index.chunked_files)} / ${fmt(index.markdown_files)}`);
+  setText("filesMissingChunks", fmt(index.missing_chunk_count));
+  setText("filesLayerDrift", fmt(index.layer_mismatch_count));
+  setText("filesGitDrift", fmt(index.git?.total || 0));
+  setText("volumeCount", `${fmt(volumes.length)} mounted`);
+  setText("registeredSourceCount", `${fmt(sources.length)} records`);
+  setText("folderBucketCount", `${fmt((index.folders || []).length)} buckets`);
+  setText("notSearchableCount", fmt(index.missing_chunk_count));
+  setText("outOfSyncCount", fmt((index.git?.total || 0) + (index.graph_without_file_count || 0) + (index.chunk_without_file_count || 0) + (index.layer_mismatch_count || 0)));
+
+  renderVolumes(volumes);
+  renderRegisteredSources(sources);
+  renderFolderCoverage(index.folders || []);
+  renderCompactList("notSearchableList", index.missing_chunks || [], "All markdown files have semantic chunks.");
+  const driftItems = [
+    ...(index.graph_without_file || []).map((id) => `graph without file: ${id}`),
+    ...(index.chunk_without_file || []).map((id) => `chunk without file: ${id}`),
+    ...(index.layer_mismatches || []).map((item) => `layer mismatch: ${item.id} (${item.actual} should be ${item.expected})`),
+    ...((index.git?.items || []).map((line) => `git: ${line}`)),
+  ];
+  renderCompactList("outOfSyncList", driftItems, "No graph, chunk, layer, or git drift detected.");
+}
+
+function renderVolumes(volumes) {
+  const root = $("volumeList");
+  root.innerHTML = "";
+  if (!volumes.length) {
+    root.innerHTML = `<div class="result"><h4>No mounted volumes found</h4></div>`;
+    return;
+  }
+  for (const volume of volumes) {
+    const item = document.createElement("article");
+    item.className = "source-card";
+    const entries = (volume.entries || []).slice(0, 10).map((entry) => `
+      <li><span>${escapeHtml(entry.kind === "directory" ? "dir" : "file")}</span>${escapeHtml(entry.name)}${entry.dir_count !== undefined ? `<small>${fmt(entry.dir_count)} dirs / ${fmt(entry.file_count)} files</small>` : ""}</li>
+    `).join("");
+    item.innerHTML = `
+      <div class="source-card-head">
+        <h4>${escapeHtml(basename(volume.path))}</h4>
+        <span class="badge ${volume.accessible ? "" : "muted"}">${volume.accessible ? "accessible" : "blocked"}</span>
+      </div>
+      <p>${escapeHtml(volume.path)}</p>
+      <div class="mini-row"><span>${fmt(volume.dir_count)} dirs</span><span>${fmt(volume.file_count)} files</span>${volume.truncated ? "<span>truncated</span>" : ""}</div>
+      <ul class="entry-list">${entries}</ul>
+    `;
+    root.appendChild(item);
+  }
+}
+
+function renderRegisteredSources(sources) {
+  const root = $("registeredSources");
+  root.innerHTML = "";
+  if (!sources.length) {
+    root.innerHTML = `<div class="result"><h4>No registered sources found</h4></div>`;
+    return;
+  }
+  for (const source of sources) {
+    const item = document.createElement("article");
+    item.className = "source-card";
+    const status = source.is_current_brain ? "current brain" : source.accessible_now ? "reachable" : source.exists_now ? "blocked" : "missing";
+    item.innerHTML = `
+      <div class="source-card-head">
+        <h4>${escapeHtml(source.id || source.name || "source")}</h4>
+        <span class="badge ${source.accessible_now ? "" : "muted"}">${escapeHtml(status)}</span>
+      </div>
+      <p>${escapeHtml(source.path || "")}</p>
+      <div class="mini-row">
+        <span>${escapeHtml(source.host || "unknown host")}</span>
+        <span>${escapeHtml(source.role || "source")}</span>
+        ${source.markdown_count_at_scan !== undefined && source.markdown_count_at_scan !== null ? `<span>${fmt(source.markdown_count_at_scan)} md at scan</span>` : ""}
+        ${source.current_markdown_count !== undefined && source.current_markdown_count !== null ? `<span>${fmt(source.current_markdown_count)} md now</span>` : ""}
+      </div>
+    `;
+    root.appendChild(item);
+  }
+}
+
+function renderFolderCoverage(folders) {
+  const root = $("folderCoverageTable");
+  root.innerHTML = `<div class="table-row file-header"><span>Bucket</span><span>Files</span><span>Graph</span><span>Chunked</span><span>Chunks</span><span>Issues</span></div>`;
+  if (!folders.length) {
+    root.innerHTML = `<div class="result"><h4>No folder coverage data</h4></div>`;
+    return;
+  }
+  folders.slice(0, 80).forEach((folder) => {
+    const issues = (folder.missing_graph || 0) + (folder.missing_chunks || 0) + (folder.layer_mismatches || 0);
+    const row = document.createElement("div");
+    row.className = `table-row file-row ${issues ? "warn-row" : ""}`;
+    row.innerHTML = `
+      <span>${escapeHtml(folder.bucket)}</span>
+      <span>${fmt(folder.files)}</span>
+      <span>${fmt(folder.graph_nodes)}</span>
+      <span>${fmt(folder.chunked_files)}</span>
+      <span>${fmt(folder.chunks)}</span>
+      <span>${fmt(issues)}</span>
+    `;
+    root.appendChild(row);
+  });
+}
+
+function renderCompactList(id, items, emptyText) {
+  const root = $(id);
+  root.innerHTML = "";
+  if (!items.length) {
+    root.innerHTML = `<div class="result"><h4>${escapeHtml(emptyText)}</h4></div>`;
+    return;
+  }
+  for (const item of items.slice(0, 80)) {
+    const row = document.createElement("div");
+    row.className = "result compact-result";
+    row.innerHTML = `<h4>${escapeHtml(item)}</h4>`;
+    root.appendChild(row);
+  }
+}
+
 async function refresh() {
   const data = await getJson("/api/status");
   renderStatus(data);
@@ -277,6 +411,7 @@ function escapeAttr(value) {
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => {
     setPanel(btn.dataset.panel);
+    if (btn.dataset.panel === "files") loadFiles();
     if (btn.dataset.panel === "sources") loadSources();
   });
 });

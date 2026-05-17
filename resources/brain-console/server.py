@@ -15,6 +15,7 @@ import subprocess
 import threading
 import sys
 import time
+from collections import Counter
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -407,17 +408,232 @@ def api_graph(atom_id: str, limit: int) -> dict[str, Any]:
 
 
 def api_sources() -> dict[str, Any]:
+    sources, error = load_registry_sources()
+    return {"sources": sources, **({"error": error} if error else {})}
+
+
+def load_registry_sources() -> tuple[list[dict[str, Any]], str | None]:
     if not REGISTRY_PATH.exists():
-        return {"sources": [], "error": "registry file not found"}
+        return [], "registry file not found"
     try:
         data = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             sources = data.get("sources") or data.get("items") or []
         else:
             sources = data
-        return {"sources": sources}
+        return sources, None
     except Exception as exc:
-        return {"sources": [], "error": str(exc)}
+        return [], str(exc)
+
+
+def bucket_for_note(rel_path: str) -> str:
+    parts = rel_path.split("/")
+    if len(parts) >= 4 and parts[0] == "wiki" and parts[1] == "Permanent":
+        return "/".join(parts[:3])
+    if len(parts) >= 3 and parts[0] == "wiki" and parts[1] == "Permanent":
+        return "wiki/Permanent"
+    if len(parts) >= 2:
+        return "/".join(parts[:2])
+    return parts[0] if parts else "root"
+
+
+def expected_layer_for_path(rel_path: str) -> str | None:
+    if rel_path.startswith("wiki/Permanent/"):
+        return "insight"
+    if rel_path.startswith("wiki/Sources/"):
+        return "signal"
+    if rel_path.startswith("wiki/Meta/"):
+        return "index"
+    if rel_path.startswith("wiki/Syntheses/"):
+        return "synthesis"
+    return None
+
+
+def safe_shallow_scan(path: str, max_entries: int = 36) -> dict[str, Any]:
+    target = Path(path).expanduser()
+    out: dict[str, Any] = {
+        "path": str(target),
+        "exists": target.exists(),
+        "is_dir": target.is_dir(),
+        "accessible": False,
+        "entries": [],
+        "dir_count": 0,
+        "file_count": 0,
+        "truncated": False,
+    }
+    if not target.exists() or not target.is_dir():
+        return out
+    try:
+        entries = list(target.iterdir())
+    except Exception as exc:
+        out["error"] = str(exc)
+        return out
+    out["accessible"] = True
+    out["dir_count"] = sum(1 for item in entries if item.is_dir())
+    out["file_count"] = sum(1 for item in entries if item.is_file())
+    out["truncated"] = len(entries) > max_entries
+    selected = sorted(entries, key=lambda item: (not item.is_dir(), item.name.lower()))[:max_entries]
+    scanned: list[dict[str, Any]] = []
+    for item in selected:
+        record: dict[str, Any] = {
+            "name": item.name,
+            "path": str(item),
+            "kind": "directory" if item.is_dir() else "file",
+        }
+        if item.is_file():
+            try:
+                record["size_bytes"] = item.stat().st_size
+            except Exception:
+                pass
+        elif item.is_dir():
+            try:
+                children = list(item.iterdir())
+                record["dir_count"] = sum(1 for child in children if child.is_dir())
+                record["file_count"] = sum(1 for child in children if child.is_file())
+            except Exception as exc:
+                record["error"] = str(exc)
+        scanned.append(record)
+    out["entries"] = scanned
+    return out
+
+
+def mounted_volumes() -> list[dict[str, Any]]:
+    volumes_root = Path("/Volumes")
+    if not volumes_root.exists():
+        return []
+    try:
+        volumes = sorted((p for p in volumes_root.iterdir() if p.is_dir()), key=lambda p: p.name.lower())
+    except Exception:
+        return []
+    return [safe_shallow_scan(str(path), max_entries=18) for path in volumes]
+
+
+def registry_runtime_sources() -> list[dict[str, Any]]:
+    sources, _error = load_registry_sources()
+    brain_markdown_count = len(markdown_paths())
+    records: list[dict[str, Any]] = [
+        {
+            "id": "runtime-brain",
+            "host": "this-machine",
+            "path": str(BRAIN_ROOT),
+            "role": "active-console-brain",
+            "trust": "runtime-selected",
+            "exists_now": BRAIN_ROOT.exists(),
+            "accessible_now": BRAIN_ROOT.exists() and BRAIN_ROOT.is_dir(),
+            "is_current_brain": True,
+            "current_markdown_count": brain_markdown_count,
+        }
+    ]
+    brain_resolved = BRAIN_ROOT.resolve() if BRAIN_ROOT.exists() else BRAIN_ROOT
+    for source in sources:
+        path = Path(str(source.get("path") or "")).expanduser()
+        exists = path.exists()
+        accessible = False
+        if exists and path.is_dir():
+            try:
+                next(path.iterdir(), None)
+                accessible = True
+            except StopIteration:
+                accessible = True
+            except Exception:
+                accessible = False
+        is_brain = exists and path.resolve() == brain_resolved
+        record = {
+            **source,
+            "exists_now": exists,
+            "accessible_now": accessible,
+            "is_current_brain": is_brain,
+            "current_markdown_count": brain_markdown_count if is_brain else None,
+        }
+        if str(path).startswith("/Volumes/") and exists:
+            record["shallow"] = safe_shallow_scan(str(path), max_entries=18)
+        records.append(record)
+    return records
+
+
+def git_status_summary() -> dict[str, Any]:
+    raw = git_output(["status", "--short"])
+    lines = [line for line in raw.splitlines() if line.strip()]
+    counts = Counter((line[:2].strip() or "changed") for line in lines)
+    return {
+        "raw": raw,
+        "total": len(lines),
+        "counts": dict(counts),
+        "items": lines[:120],
+    }
+
+
+def file_index_overview() -> dict[str, Any]:
+    graph = load_graph()
+    nodes = graph.get("nodes", {})
+    graph_ids = set(nodes.keys())
+    markdown = [rel_to_brain(path) for path in markdown_paths()]
+    markdown_ids = set(markdown)
+    chunks_by_note = Counter(str(chunk.get("note_id") or "") for chunk in load_metadata() if chunk.get("note_id"))
+    chunk_note_ids = set(chunks_by_note)
+
+    folders: dict[str, dict[str, Any]] = {}
+    layer_mismatches: list[dict[str, Any]] = []
+    for rel_path in markdown:
+        bucket = bucket_for_note(rel_path)
+        row = folders.setdefault(
+            bucket,
+            {"bucket": bucket, "files": 0, "graph_nodes": 0, "chunked_files": 0, "chunks": 0, "missing_graph": 0, "missing_chunks": 0, "layer_mismatches": 0},
+        )
+        row["files"] += 1
+        if rel_path in graph_ids:
+            row["graph_nodes"] += 1
+        else:
+            row["missing_graph"] += 1
+        if rel_path in chunk_note_ids:
+            row["chunked_files"] += 1
+            row["chunks"] += chunks_by_note[rel_path]
+        else:
+            row["missing_chunks"] += 1
+        expected = expected_layer_for_path(rel_path)
+        actual = nodes.get(rel_path, {}).get("layer")
+        if expected and actual and expected != actual:
+            row["layer_mismatches"] += 1
+            if len(layer_mismatches) < 120:
+                layer_mismatches.append({"id": rel_path, "expected": expected, "actual": actual})
+
+    folder_rows = sorted(
+        folders.values(),
+        key=lambda row: (row["missing_graph"] + row["missing_chunks"] + row["layer_mismatches"], row["files"]),
+        reverse=True,
+    )
+    missing_graph = sorted(markdown_ids - graph_ids)
+    missing_chunks = sorted(markdown_ids - chunk_note_ids)
+    graph_without_file = sorted(graph_ids - markdown_ids)
+    chunk_without_file = sorted(chunk_note_ids - markdown_ids)
+    return {
+        "markdown_files": len(markdown_ids),
+        "graph_nodes": len(graph_ids),
+        "chunked_files": len(chunk_note_ids & markdown_ids),
+        "chunks": sum(chunks_by_note.values()),
+        "missing_graph_count": len(missing_graph),
+        "missing_chunk_count": len(missing_chunks),
+        "graph_without_file_count": len(graph_without_file),
+        "chunk_without_file_count": len(chunk_without_file),
+        "layer_mismatch_count": sum(row["layer_mismatches"] for row in folder_rows),
+        "missing_graph": missing_graph[:120],
+        "missing_chunks": missing_chunks[:120],
+        "graph_without_file": graph_without_file[:120],
+        "chunk_without_file": chunk_without_file[:120],
+        "layer_mismatches": layer_mismatches,
+        "folders": folder_rows,
+        "git": git_status_summary(),
+    }
+
+
+def api_files() -> dict[str, Any]:
+    return {
+        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "brain_root": str(BRAIN_ROOT),
+        "file_index": file_index_overview(),
+        "sources": registry_runtime_sources(),
+        "volumes": mounted_volumes(),
+    }
 
 
 class RedirectHandler(BaseHTTPRequestHandler):
@@ -455,6 +671,8 @@ class Handler(BaseHTTPRequestHandler):
                 return json_response(self, api_graph(unquote(params.get("id", [""])[0]), int(params.get("limit", ["40"])[0])))
             if path == "/api/sources":
                 return json_response(self, api_sources())
+            if path == "/api/files":
+                return json_response(self, api_files())
             if path == "/api/unindexed":
                 return json_response(self, index_coverage())
             if path in ("/", "/index.html"):

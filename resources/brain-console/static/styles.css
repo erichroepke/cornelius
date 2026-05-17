@@ -455,6 +455,126 @@ input {
   gap: 14px;
 }
 
+.files-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.files-metrics {
+  margin-bottom: 14px;
+}
+
+.file-buckets {
+  margin-bottom: 14px;
+}
+
+.stack-list {
+  display: grid;
+  gap: 10px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.source-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.source-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.source-card h4 {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.source-card p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mini-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mini-row span {
+  color: #41506a;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.entry-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: grid;
+  gap: 5px;
+}
+
+.entry-list li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.entry-list li span,
+.entry-list li small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.file-table .table-row {
+  grid-template-columns: minmax(190px, 1fr) 78px 78px 78px 78px 78px;
+}
+
+.file-table .file-header {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  border-top: 0;
+}
+
+.warn-row {
+  background: #fffaf0;
+}
+
+.compact-list {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.compact-result {
+  padding: 10px 12px;
+  cursor: default;
+}
+
+.compact-result h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .graph-surface {
   padding: 0;
   overflow: hidden;
@@ -509,7 +629,9 @@ input {
   .sidebar { position: static; }
   .metric-grid,
   .two-col,
-  .graph-layout { grid-template-columns: 1fr; }
+  .graph-layout,
+  .files-layout { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; flex-direction: column; }
-  .table-row { grid-template-columns: 1fr; }
+  .table-row,
+  .file-table .table-row { grid-template-columns: 1fr; }
 }

@@ -32,6 +32,7 @@ import asyncio
 import hashlib
 import json
 import os
+import pickle
 import re
 import sys
 import tempfile
@@ -59,6 +60,13 @@ MCP_WRITE_TOKEN = os.environ.get("MCP_WRITE_TOKEN", "")
 # Vault root — atoms are written relative to this directory.
 # Default: ~/Desktop/Brain (matches Cornelius VAULT_BASE_PATH)
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Desktop" / "Brain"))
+BRAIN_GRAPH_DIR = Path(__file__).resolve().parent
+LBS_METADATA = Path(
+    os.environ.get(
+        "LBS_METADATA",
+        BRAIN_GRAPH_DIR.parent / "local-brain-search" / "data" / "brain_metadata.pkl",
+    )
+)
 
 # Audit log for all write_atom calls
 _AUDIT_LOG = Path(__file__).parent / "data" / "mcp_write_audit.jsonl"
@@ -91,6 +99,8 @@ except ImportError as e:
 # ---------------------------------------------------------------------------
 
 _driver = None
+_metadata_cache: list[dict[str, Any]] | None = None
+_sidecar_cache: dict[str, Any] | None = None
 
 
 def _get_driver():
@@ -113,6 +123,67 @@ def _run_read(query: str, params: Optional[dict] = None) -> list[dict]:
     with driver.session() as session:
         result = session.run(query, params or {})
         return [dict(r) for r in result]
+
+
+def _load_sidecar() -> dict[str, Any]:
+    global _sidecar_cache
+    if _sidecar_cache is not None:
+        return _sidecar_cache
+    sidecar = BRAIN_GRAPH_DIR / "data" / "graph_enrichments.json"
+    if not sidecar.exists():
+        _sidecar_cache = {"nodes": {}, "edges": {}, "tensions": []}
+    else:
+        _sidecar_cache = json.loads(sidecar.read_text(encoding="utf-8"))
+    return _sidecar_cache
+
+
+def _load_metadata() -> list[dict[str, Any]]:
+    """Load trusted local search metadata for keyword fallback search."""
+    global _metadata_cache
+    if _metadata_cache is not None:
+        return _metadata_cache
+    if not LBS_METADATA.exists():
+        _metadata_cache = []
+        return _metadata_cache
+    resolved = LBS_METADATA.resolve()
+    allowed_root = BRAIN_GRAPH_DIR.parent.resolve()
+    resolved.relative_to(allowed_root)
+    with resolved.open("rb") as f:
+        _metadata_cache = pickle.load(f)
+    return _metadata_cache or []
+
+
+def _metadata_keyword_search(query: str, k: int, seen: set[str]) -> list[dict]:
+    q = query.strip().lower()
+    if not q:
+        return []
+    nodes = _load_sidecar().get("nodes", {})
+    results: list[dict[str, Any]] = []
+    for chunk in _load_metadata():
+        atom_id = str(chunk.get("note_id") or "")
+        if not atom_id or atom_id in seen:
+            continue
+        haystack = " ".join(
+            str(chunk.get(key) or "")
+            for key in ("note_id", "title", "heading", "filepath", "content")
+        ).lower()
+        if q not in haystack:
+            continue
+        props = nodes.get(atom_id, {})
+        results.append(
+            {
+                "id": atom_id,
+                "layer": props.get("layer"),
+                "source": "local-search-metadata",
+                "title": chunk.get("title"),
+                "heading": chunk.get("heading"),
+                "preview": str(chunk.get("content") or "")[:700],
+            }
+        )
+        seen.add(atom_id)
+        if len(results) >= k:
+            break
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -345,37 +416,45 @@ async def zeus_brain_search(
     """Search the Brain.
 
     Modes:
-        graph    — full-text Cypher over Atom.id (fast, deterministic)
-        vector   — FAISS via local-brain-search (NOT YET WIRED in this server; stub)
-        hybrid   — vector top-K + graph neighborhood expand (NOT YET WIRED; falls back to graph)
+        graph    — Cypher over Atom.id plus local metadata keyword fallback
+        vector   — local metadata keyword fallback until FAISS/Qdrant query wiring lands
+        hybrid   — graph IDs plus local metadata keyword fallback
     """
     _assert_authed(token)
-    if mode in ("vector", "hybrid"):
-        # TODO: wire to local-brain-search FAISS / future Qdrant.
-        # For v1 fall back to graph mode and annotate.
-        rows = _run_read(
+    limit = int(k)
+    rows: list[dict[str, Any]] = []
+    if mode in ("vector", "hybrid") and _full_text_index_exists():
+        rows.extend(_run_read(
             """
             CALL db.index.fulltext.queryNodes('atom_fulltext', $q) YIELD node, score
-            RETURN node.id AS id, node.layer AS layer, score
+            RETURN node.id AS id, node.layer AS layer, score, 'neo4j-fulltext' AS source
             ORDER BY score DESC
             LIMIT $k
             """,
-            {"q": query, "k": int(k)},
-        ) if _full_text_index_exists() else []
-        return [
-            {"mode": "graph (vector/hybrid not yet wired)", **r}
-            for r in rows
-        ]
-    # default: graph mode (Cypher CONTAINS + full-text if available)
-    return _run_read(
+            {"q": query, "k": limit},
+        ))
+
+    rows.extend(_run_read(
         """
         MATCH (a:Atom)
-        WHERE a.id CONTAINS $q
-        RETURN a.id AS id, a.layer AS layer
+        WHERE toLower(a.id) CONTAINS toLower($q)
+        RETURN a.id AS id, a.layer AS layer, 'neo4j-id' AS source
         LIMIT $k
         """,
-        {"q": query, "k": int(k)},
-    )
+        {"q": query, "k": limit},
+    ))
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        atom_id = str(row.get("id") or "")
+        if not atom_id or atom_id in seen:
+            continue
+        deduped.append(row)
+        seen.add(atom_id)
+        if len(deduped) >= limit:
+            return deduped
+    deduped.extend(_metadata_keyword_search(query, limit - len(deduped), seen))
+    return deduped[:limit]
 
 
 def _full_text_index_exists() -> bool:

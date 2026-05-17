@@ -20,6 +20,7 @@
           <button class="nav-item active" data-panel="overview">Overview</button>
           <button class="nav-item" data-panel="search">Search</button>
           <button class="nav-item" data-panel="graph">Graph</button>
+          <button class="nav-item" data-panel="files">Files</button>
           <button class="nav-item" data-panel="sources">Sources</button>
           <button class="nav-item" data-panel="health">Health</button>
         </nav>
@@ -102,6 +103,52 @@
             </section>
             <section class="surface graph-surface">
               <svg id="graphSvg" viewBox="0 0 760 520" role="img" aria-label="Graph neighborhood"></svg>
+            </section>
+          </div>
+        </section>
+
+        <section id="files" class="panel">
+          <div class="metric-grid files-metrics">
+            <article class="metric"><span>Indexed Files</span><strong id="filesIndexedCount">-</strong><small>markdown with chunks</small></article>
+            <article class="metric"><span>Missing Chunks</span><strong id="filesMissingChunks">-</strong><small>files not in semantic index</small></article>
+            <article class="metric"><span>Layer Drift</span><strong id="filesLayerDrift">-</strong><small>path/schema mismatches</small></article>
+            <article class="metric"><span>Git Drift</span><strong id="filesGitDrift">-</strong><small>uncommitted brain changes</small></article>
+          </div>
+
+          <div class="files-layout">
+            <section class="surface">
+              <div class="section-head">
+                <h3>Mounted Volumes</h3>
+                <span id="volumeCount" class="badge">-</span>
+              </div>
+              <div id="volumeList" class="stack-list"></div>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <h3>Registered Sources</h3>
+                <span id="registeredSourceCount" class="badge">-</span>
+              </div>
+              <div id="registeredSources" class="stack-list"></div>
+            </section>
+          </div>
+
+          <section class="surface file-buckets">
+            <div class="section-head">
+              <h3>Brain Folder Coverage</h3>
+              <span id="folderBucketCount" class="badge">-</span>
+            </div>
+            <div id="folderCoverageTable" class="table file-table"></div>
+          </section>
+
+          <div class="two-col">
+            <section class="surface">
+              <div class="section-head"><h3>Not Searchable</h3><span id="notSearchableCount" class="badge">-</span></div>
+              <div id="notSearchableList" class="list compact-list"></div>
+            </section>
+            <section class="surface">
+              <div class="section-head"><h3>Out Of Sync</h3><span id="outOfSyncCount" class="badge">-</span></div>
+              <div id="outOfSyncList" class="list compact-list"></div>
             </section>
           </div>
         </section>
