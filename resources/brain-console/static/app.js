@@ -97,7 +97,7 @@ function renderMissing(items) {
 }
 
 function stripFrontmatter(value) {
-  return String(value || "").replace(/^---[\s\S]*?---\s*/m, "").trim();
+  return String(value || "").replace(/^---[\s\S]*?---\s*/, "").trim();
 }
 
 function resultPreview(item) {
