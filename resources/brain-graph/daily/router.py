@@ -171,6 +171,17 @@ _SESSION_PATTERNS: list[re.Pattern] = [
     re.compile(r"\d{4}[-_]\d{2}[-_]\d{2}", re.IGNORECASE),  # dated files
 ]
 
+# Daily ingest outputs are operational records, not source notes. Their dated
+# filenames otherwise match _SESSION_PATTERNS and can get re-sent to extraction.
+_GENERATED_OPERATIONAL_REPORT_SUFFIXES: tuple[str, ...] = (
+    "quick_action_queue",
+    "daily_action_queue",
+    "quick_librarian_brief",
+    "daily_librarian_brief",
+    "quick_vault_sweep",
+    "daily_vault_sweep",
+)
+
 # Frontmatter type → source type override
 _FM_TYPE_MAP: dict[str, SourceType] = {
     "session":      SourceType.SESSION_CAPTURE,
@@ -186,8 +197,27 @@ _FM_TYPE_MAP: dict[str, SourceType] = {
 }
 
 
+def _normalized_stem(path: Path) -> str:
+    """Normalize common separator variants for filename suffix matching."""
+    return re.sub(r"[\s\-]+", "_", path.stem.lower())
+
+
+def _is_generated_operational_report(path: Path) -> bool:
+    """Return True for machine-generated ingest outputs that must not recurse."""
+    stem = _normalized_stem(path)
+    return any(stem.endswith(suffix) for suffix in _GENERATED_OPERATIONAL_REPORT_SUFFIXES)
+
+
 def _route_markdown(record: FileRecord) -> RoutingDecision:
     """Apply frontmatter + heuristic classification for .md/.txt/.org files."""
+    if _is_generated_operational_report(record.path):
+        return RoutingDecision(
+            source_type=SourceType.DATA,
+            destination=Dest.SOURCES_SESSIONS,
+            trust=Trust.SKIP,
+            reason="generated operational report; not sent to insight extraction",
+        )
+
     fm = _parse_frontmatter(record.path) if record.extension in (".md",) else {}
     note_type_raw = fm.get("type", "")
     if isinstance(note_type_raw, list):

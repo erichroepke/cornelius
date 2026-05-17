@@ -51,6 +51,50 @@ class TestRouterDestinations:
                 assert not val.startswith(prefix), f"v2.1 path still present in {member.name}: {val}"
 
 
+class TestRouterOperationalReports:
+    """Generated daily outputs must not feed the insight extractor again."""
+
+    def _record(self, path: Path) -> router.FileRecord:
+        return router.FileRecord(
+            path=path,
+            md5="test",
+            mtime=0,
+            size=path.stat().st_size,
+            is_new=True,
+        )
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "2026-05-16_daily_action_queue.md",
+            "2026-05-16_daily_librarian_brief.md",
+            "2026-05-16_daily_vault_sweep.md",
+            "2026-05-17_quick_action_queue.md",
+            "2026-05-17_quick_librarian_brief.md",
+            "2026-05-17_quick_vault_sweep.md",
+        ],
+    )
+    def test_generated_daily_reports_are_skipped(self, tmp_path: Path, filename: str) -> None:
+        path = tmp_path / filename
+        path.write_text("---\ntype: session\n---\n# Generated daily output\n")
+
+        decision = router.route(self._record(path))
+
+        assert decision.trust == router.Trust.SKIP
+        assert decision.source_type == router.SourceType.DATA
+        assert "not sent to insight extraction" in decision.reason
+
+    def test_dated_human_session_still_routes_to_session_capture(self, tmp_path: Path) -> None:
+        path = tmp_path / "2026-05-17_wispr-brainstorm-design.md"
+        path.write_text("# Wispr brainstorm design\n\nHuman session notes.\n")
+
+        decision = router.route(self._record(path))
+
+        assert decision.trust == router.Trust.AUTO
+        assert decision.source_type == router.SourceType.SESSION_CAPTURE
+        assert decision.destination == router.Dest.SOURCES_SESSIONS
+
+
 # ---------------------------------------------------------------------------
 # Digest — writes correctly even with no audit data
 # ---------------------------------------------------------------------------
