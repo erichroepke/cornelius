@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZEUS Brain Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="mark">ZB</div>
+          <div>
+            <h1>ZEUS Brain</h1>
+            <p>Local console</p>
+          </div>
+        </div>
+        <nav>
+          <button class="nav-item active" data-panel="overview">Overview</button>
+          <button class="nav-item" data-panel="search">Search</button>
+          <button class="nav-item" data-panel="graph">Graph</button>
+          <button class="nav-item" data-panel="sources">Sources</button>
+          <button class="nav-item" data-panel="health">Health</button>
+        </nav>
+        <div class="side-status">
+          <span class="dot" id="daemonDot"></span>
+          <span id="daemonText">Checking...</span>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <h2 id="pageTitle">Overview</h2>
+            <p id="subtitle">Search coverage, graph state, and ingest readiness for the local Brain.</p>
+          </div>
+          <div class="top-actions">
+            <button id="refreshBtn" class="button secondary">Refresh</button>
+            <a class="button" href="http://localhost:7476/browser/" target="_blank" rel="noreferrer">Neo4j</a>
+          </div>
+        </header>
+
+        <section id="overview" class="panel active">
+          <div class="metric-grid">
+            <article class="metric"><span>Markdown</span><strong id="markdownCount">-</strong><small>files discovered</small></article>
+            <article class="metric"><span>Graph Nodes</span><strong id="nodeCount">-</strong><small>BDG sidecar</small></article>
+            <article class="metric"><span>Edges</span><strong id="edgeCount">-</strong><small>typed relationships</small></article>
+            <article class="metric"><span>Chunks</span><strong id="chunkCount">-</strong><small>semantic index</small></article>
+          </div>
+
+          <div class="two-col">
+            <section class="surface">
+              <div class="section-head">
+                <h3>Index Coverage</h3>
+                <span id="coverageBadge" class="badge">-</span>
+              </div>
+              <div class="coverage-bar"><div id="coverageFill"></div></div>
+              <dl class="detail-list">
+                <div><dt>Brain root</dt><dd id="brainRoot">-</dd></div>
+                <div><dt>Git head</dt><dd id="gitHead">-</dd></div>
+                <div><dt>Last BDG bootstrap</dt><dd id="lastBootstrap">-</dd></div>
+                <div><dt>FAISS updated</dt><dd id="faissUpdated">-</dd></div>
+              </dl>
+            </section>
+
+            <section class="surface">
+              <div class="section-head">
+                <h3>Layer Distribution</h3>
+                <span class="badge muted">Neo4j</span>
+              </div>
+              <div id="layerBars" class="bars"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="search" class="panel">
+          <div class="search-row">
+            <input id="searchInput" placeholder="Search notes, paths, projects, sessions..." autocomplete="off" />
+            <button id="searchBtn" class="button">Search</button>
+          </div>
+          <div id="searchResults" class="results"></div>
+        </section>
+
+        <section id="graph" class="panel">
+          <div class="graph-layout">
+            <section class="surface">
+              <div class="section-head">
+                <h3>Selected Node</h3>
+                <span id="selectedLayer" class="badge">none</span>
+              </div>
+              <input id="nodeInput" placeholder="wiki/Meta/master-brain-architecture-2026-05-17.md" />
+              <button id="loadNodeBtn" class="button full">Load Neighborhood</button>
+              <pre id="nodePreview" class="preview"></pre>
+            </section>
+            <section class="surface graph-surface">
+              <svg id="graphSvg" viewBox="0 0 760 520" role="img" aria-label="Graph neighborhood"></svg>
+            </section>
+          </div>
+        </section>
+
+        <section id="sources" class="panel">
+          <section class="surface">
+            <div class="section-head">
+              <h3>Consolidation Registry</h3>
+              <span id="sourceCount" class="badge">-</span>
+            </div>
+            <div id="sourcesTable" class="table"></div>
+          </section>
+        </section>
+
+        <section id="health" class="panel">
+          <div class="two-col">
+            <section class="surface">
+              <div class="section-head"><h3>Services</h3><span class="badge">local</span></div>
+              <dl class="detail-list">
+                <div><dt>Neo4j</dt><dd id="neo4jHealth">-</dd></div>
+                <div><dt>FAISS</dt><dd id="faissHealth">-</dd></div>
+                <div><dt>BDG sidecar</dt><dd id="bdgHealth">-</dd></div>
+                <div><dt>Registry</dt><dd id="registryHealth">-</dd></div>
+              </dl>
+            </section>
+            <section class="surface">
+              <div class="section-head"><h3>Not Indexed</h3><span id="missingCount" class="badge">-</span></div>
+              <div id="missingList" class="list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
