@@ -29,10 +29,42 @@ except ImportError as exc:  # pragma: no cover - boot guard
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 HOME = Path.home()
-BRAIN_ROOT = Path(os.environ.get("BRAIN_ROOT", HOME / "Desktop" / "Brain"))
+
+
+def first_existing_dir(candidates: list[Path], required_child: str | None = None) -> Path:
+    """Return the first candidate directory that exists, optionally with a child."""
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            if required_child is None or (candidate / required_child).exists():
+                return candidate
+    return candidates[0]
+
+
+CORNELIUS_ROOT = APP_DIR.parents[1]
+BRAIN_ROOT = Path(os.environ["BRAIN_ROOT"]) if os.environ.get("BRAIN_ROOT") else first_existing_dir(
+    [
+        HOME / "Desktop" / "Brain",
+        HOME / "Desktop" / "ZEUS-BRAIN-STARTUP-2026-05-17" / "Brain",
+        HOME / "Desktop" / "Brain-replica",
+        HOME / "Desktop" / "NIKLAS",
+    ],
+    "wiki",
+)
 WIKI_ROOT = BRAIN_ROOT / "wiki"
-BRAIN_GRAPH_DIR = Path(os.environ.get("BRAIN_GRAPH_DIR", HOME / "Cornelius" / "resources" / "brain-graph"))
-LBS_DIR = Path(os.environ.get("LBS_DIR", HOME / "Cornelius" / "resources" / "local-brain-search"))
+BRAIN_GRAPH_DIR = Path(os.environ["BRAIN_GRAPH_DIR"]) if os.environ.get("BRAIN_GRAPH_DIR") else first_existing_dir(
+    [
+        CORNELIUS_ROOT / "resources" / "brain-graph",
+        HOME / "Cornelius" / "resources" / "brain-graph",
+        HOME / "Desktop" / "Cornelius" / "resources" / "brain-graph",
+    ]
+)
+LBS_DIR = Path(os.environ["LBS_DIR"]) if os.environ.get("LBS_DIR") else first_existing_dir(
+    [
+        CORNELIUS_ROOT / "resources" / "local-brain-search",
+        HOME / "Cornelius" / "resources" / "local-brain-search",
+        HOME / "Desktop" / "Cornelius" / "resources" / "local-brain-search",
+    ]
+)
 GRAPH_ENRICHMENTS = BRAIN_GRAPH_DIR / "data" / "graph_enrichments.json"
 LBS_METADATA = LBS_DIR / "data" / "brain_metadata.pkl"
 LBS_FAISS = LBS_DIR / "data" / "brain.faiss"
@@ -136,10 +168,15 @@ def git_output(args: list[str]) -> str:
         return ""
 
 
+def is_indexable_markdown(path: Path) -> bool:
+    """True for real markdown notes; false for macOS AppleDouble sidecars."""
+    return path.suffix == ".md" and not any(part.startswith("._") for part in path.parts)
+
+
 def markdown_paths() -> list[Path]:
     if not BRAIN_ROOT.exists():
         return []
-    return sorted(BRAIN_ROOT.rglob("*.md"))
+    return sorted(p for p in BRAIN_ROOT.rglob("*.md") if is_indexable_markdown(p))
 
 
 def rel_to_brain(path: Path) -> str:

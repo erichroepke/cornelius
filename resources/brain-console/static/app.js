@@ -120,17 +120,21 @@ async function runSearch() {
   const query = $("searchInput").value.trim();
   const root = $("searchResults");
   if (!query) return;
-  root.innerHTML = `<div class="result"><h4>Searching...</h4></div>`;
+  setText("searchSummary", `Searching for “${query}”...`);
+  root.innerHTML = `<div class="notice"><strong>Searching Brain...</strong><span>Checking graph paths and note content.</span></div>`;
   try {
     const data = await getJson(`/api/search?q=${encodeURIComponent(query)}&limit=25`);
     root.innerHTML = "";
-    if (!data.results?.length) {
-      root.innerHTML = `<div class="result"><h4>No results</h4><p>Try a broader term or a filename fragment.</p></div>`;
+    const results = data.results || [];
+    setText("searchSummary", `${fmt(results.length)} results for “${query}”. Click a result to inspect its graph neighborhood.`);
+    if (!results.length) {
+      root.innerHTML = `<div class="notice"><strong>No results</strong><span>Try a broader term or a filename fragment.</span></div>`;
       return;
     }
-    data.results.forEach((item) => root.appendChild(resultCard(item)));
+    results.forEach((item) => root.appendChild(resultCard(item)));
   } catch (err) {
-    root.innerHTML = `<div class="result"><h4>Search failed</h4><p>${escapeHtml(err.message)}</p></div>`;
+    setText("searchSummary", "Search failed.");
+    root.innerHTML = `<div class="notice danger"><strong>Search failed</strong><span>${escapeHtml(err.message)}</span></div>`;
   }
 }
 
@@ -274,6 +278,12 @@ $("searchInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter") runSearch();
 });
 $("loadNodeBtn").addEventListener("click", () => loadNode());
+document.querySelectorAll(".quick-searches button").forEach((button) => {
+  button.addEventListener("click", () => {
+    $("searchInput").value = button.dataset.query;
+    runSearch();
+  });
+});
 
 refresh().catch((err) => {
   $("daemonDot").className = "dot bad";
