@@ -16,8 +16,9 @@ services:
       NEO4J_server_memory_heap_max__size: 4G
       NEO4J_server_memory_pagecache_size: 2G
     ports:
-      - "7474:7474"   # HTTP browser
-      - "7687:7687"   # Bolt protocol
+      # Do not publish Neo4j Browser on the host. The custom console owns
+      # :7476 as a redirect to :8789, while Neo4j remains reachable via Bolt.
+      - "7689:7687"   # Bolt protocol
     volumes:
       - zeus-neo4j-data:/data
       - zeus-neo4j-logs:/logs

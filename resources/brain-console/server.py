@@ -95,6 +95,8 @@ NEO4J_USER = ENV.get("NEO4J_USER") or ENV.get("BRAIN_NEO4J_USER") or os.environ.
 NEO4J_PASS = ENV.get("NEO4J_PASS") or ENV.get("BRAIN_NEO4J_PASS") or os.environ.get("NEO4J_PASS") or ""
 HOST = os.environ.get("BRAIN_CONSOLE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("BRAIN_CONSOLE_PORT", "8789"))
+REDIRECT_PORT = int(os.environ.get("BRAIN_CONSOLE_REDIRECT_PORT", "7476"))
+PUBLIC_URL = os.environ.get("BRAIN_CONSOLE_PUBLIC_URL", f"http://127.0.0.1:{PORT}/")
 
 
 _driver = None
@@ -418,6 +420,22 @@ def api_sources() -> dict[str, Any]:
         return {"sources": [], "error": str(exc)}
 
 
+class RedirectHandler(BaseHTTPRequestHandler):
+    server_version = "ZeusBrainConsoleRedirect/0.1"
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(HTTPStatus.FOUND)
+        self.send_header("Location", PUBLIC_URL)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self.do_GET()
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        print(f"[brain-console-redirect] {self.address_string()} {fmt % args}")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ZeusBrainConsole/0.1"
 
@@ -459,9 +477,23 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[brain-console] {self.address_string()} {fmt % args}")
 
 
+def start_redirect_server() -> None:
+    if REDIRECT_PORT == PORT:
+        return
+    try:
+        redirect = ThreadingHTTPServer((HOST, REDIRECT_PORT), RedirectHandler)
+    except OSError as exc:
+        print(f"ZEUS Brain Console redirect disabled on {HOST}:{REDIRECT_PORT}: {exc}", file=sys.stderr)
+        return
+    print(f"ZEUS Brain Console redirect: http://{HOST}:{REDIRECT_PORT} -> {PUBLIC_URL}")
+    thread = threading.Thread(target=redirect.serve_forever, name="brain-console-redirect", daemon=True)
+    thread.start()
+
+
 def main() -> None:
     print(f"ZEUS Brain Console: http://{HOST}:{PORT}")
     print(f"Brain root: {BRAIN_ROOT}")
+    start_redirect_server()
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     httpd.serve_forever()
 
