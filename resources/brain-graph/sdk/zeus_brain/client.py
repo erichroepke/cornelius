@@ -47,9 +47,9 @@ class Client:
             if target.exists():
                 load_dotenv(target)
         return cls(
-            uri=os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-            user=os.environ.get("NEO4J_USER", "neo4j"),
-            password=os.environ.get("NEO4J_PASS", ""),
+            uri=os.environ.get("NEO4J_URI") or os.environ.get("BRAIN_NEO4J_URI") or "bolt://localhost:7689",
+            user=os.environ.get("NEO4J_USER") or os.environ.get("BRAIN_NEO4J_USER") or "neo4j",
+            password=os.environ.get("NEO4J_PASS") or os.environ.get("BRAIN_NEO4J_PASS") or "",
         )
 
     def close(self) -> None:

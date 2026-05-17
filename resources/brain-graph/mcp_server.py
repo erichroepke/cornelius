@@ -16,9 +16,9 @@ Tools (read scope):
 - zeus_brain_graph_query             — raw read-only Cypher (denylist mutating clauses)
 
 Configure via .env (alongside docker-compose.neo4j.yml):
-    NEO4J_URI=bolt://localhost:7687
-    NEO4J_USER=neo4j
-    NEO4J_PASS=<your password>
+    NEO4J_URI=bolt://localhost:7689
+    BRAIN_NEO4J_USER=neo4j
+    BRAIN_NEO4J_PASS=<your password>
     ZEUS_BRAIN_TOKEN=<optional shared secret; if set, callers must pass it>
 
 Plug into a project:
@@ -50,9 +50,9 @@ try:
 except ImportError:
     pass
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASS = os.environ.get("NEO4J_PASS", "")
+NEO4J_URI = os.environ.get("NEO4J_URI") or os.environ.get("BRAIN_NEO4J_URI") or "bolt://localhost:7689"
+NEO4J_USER = os.environ.get("NEO4J_USER") or os.environ.get("BRAIN_NEO4J_USER") or "neo4j"
+NEO4J_PASS = os.environ.get("NEO4J_PASS") or os.environ.get("BRAIN_NEO4J_PASS") or ""
 ZEUS_BRAIN_TOKEN = os.environ.get("ZEUS_BRAIN_TOKEN", "")
 MCP_WRITE_TOKEN = os.environ.get("MCP_WRITE_TOKEN", "")
 

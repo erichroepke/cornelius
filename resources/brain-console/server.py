@@ -90,7 +90,7 @@ REGISTRY_PATH = WIKI_ROOT / "Meta" / "consolidation-registry-2026-05-17.json"
 
 
 ENV = load_env_file(ENV_PATH)
-NEO4J_URI = ENV.get("NEO4J_URI") or os.environ.get("NEO4J_URI") or "bolt://localhost:7689"
+NEO4J_URI = ENV.get("NEO4J_URI") or ENV.get("BRAIN_NEO4J_URI") or os.environ.get("NEO4J_URI") or os.environ.get("BRAIN_NEO4J_URI") or "bolt://localhost:7689"
 NEO4J_USER = ENV.get("NEO4J_USER") or ENV.get("BRAIN_NEO4J_USER") or os.environ.get("NEO4J_USER") or "neo4j"
 NEO4J_PASS = ENV.get("NEO4J_PASS") or ENV.get("BRAIN_NEO4J_PASS") or os.environ.get("NEO4J_PASS") or ""
 HOST = os.environ.get("BRAIN_CONSOLE_HOST", "127.0.0.1")
@@ -477,8 +477,18 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[brain-console] {self.address_string()} {fmt % args}")
 
 
+def is_loopback_host(host: str) -> bool:
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
 def start_redirect_server() -> None:
     if REDIRECT_PORT == PORT:
+        return
+    if not PUBLIC_URL.startswith(("http://", "https://")):
+        print(f"ZEUS Brain Console redirect disabled: invalid public URL {PUBLIC_URL!r}", file=sys.stderr)
+        return
+    if not is_loopback_host(HOST):
+        print(f"ZEUS Brain Console redirect disabled on non-loopback host {HOST!r}", file=sys.stderr)
         return
     try:
         redirect = ThreadingHTTPServer((HOST, REDIRECT_PORT), RedirectHandler)
