@@ -282,6 +282,13 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
 });
 
 $("refreshBtn").addEventListener("click", refresh);
+$("graphJumpBtn").addEventListener("click", () => {
+  setPanel("graph");
+  if (!$("nodeInput").value.trim()) {
+    $("nodeInput").value = "wiki/Meta/master-brain-architecture-2026-05-17.md";
+    loadNode();
+  }
+});
 $("searchBtn").addEventListener("click", runSearch);
 $("searchInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter") runSearch();

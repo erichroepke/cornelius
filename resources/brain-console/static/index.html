@@ -37,7 +37,7 @@
           </div>
           <div class="top-actions">
             <button id="refreshBtn" class="button secondary">Refresh</button>
-            <a class="button" href="http://localhost:7476/browser/" target="_blank" rel="noreferrer">Neo4j</a>
+            <button id="graphJumpBtn" class="button">Graph</button>
           </div>
         </header>
 
@@ -125,7 +125,9 @@
                 <div><dt>FAISS</dt><dd id="faissHealth">-</dd></div>
                 <div><dt>BDG sidecar</dt><dd id="bdgHealth">-</dd></div>
                 <div><dt>Registry</dt><dd id="registryHealth">-</dd></div>
+                <div><dt>Login mode</dt><dd>Console auto-link; Neo4j credentials stay server-side.</dd></div>
               </dl>
+              <p class="service-note">Use this console for graph search and graph neighborhoods. The raw Neo4j Browser is no longer part of the normal path because it requires an admin login.</p>
             </section>
             <section class="surface">
               <div class="section-head"><h3>Not Indexed</h3><span id="missingCount" class="badge">-</span></div>

@@ -411,6 +411,13 @@ input {
   color: var(--danger);
 }
 
+.service-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .result h4 {
   margin: 0 0 8px;
   font-size: 14px;
