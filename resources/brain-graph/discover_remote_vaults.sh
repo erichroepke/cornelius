@@ -13,14 +13,14 @@
 #
 # Output:
 #   - Prints discovered remote vaults to stdout
-#   - Updates ~/Desktop/Brain/05-Meta/vaults-registry.json (unless --dry-run)
+#   - Updates the canonical Brain registry (unless --dry-run)
 #   - Adds `host: <alias>` + `tailscale_name: <hostname>` + `reachable_now: true` per vault
 
 set -euo pipefail
 
 SSH_ALIAS="${1:-home}"
 DRY_RUN="${2:-}"
-REGISTRY="/Users/erichroepke/Desktop/Brain/05-Meta/vaults-registry.json"
+REGISTRY="/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain/05-Meta/vaults-registry.json"
 
 # Verify Tailscale running + peer reachable
 if ! command -v tailscale >/dev/null; then

@@ -11,7 +11,7 @@ what Cornelius would do?" — read this first before changing semantics.
 ### Edge type vocabulary — exact match
 
 The 6 allowed edge types in `prompts.py::ALLOWED_EDGE_TYPES` mirror
-`~/Cornelius/resources/brain-graph/models.py::EdgeType` EXACTLY:
+`/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/models.py::EdgeType` EXACTLY:
 
 | Cornelius BDG (models.py) | Orchestrator (prompts.py) | Decay | Notes |
 |---|---|---|---|
@@ -121,7 +121,7 @@ not duplicate them:
 
 The orchestrator reads `data/graph_enrichments.json` (Cornelius BDG
 sidecar). Format documented in
-`~/Cornelius/resources/brain-graph/BRAIN-DEPENDENCY-GRAPH-ARCHITECTURE.md`
+`/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/BRAIN-DEPENDENCY-GRAPH-ARCHITECTURE.md`
 under "Per-Note Metadata (Sidecar JSON)".
 
 ### Output

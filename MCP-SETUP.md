@@ -2,6 +2,8 @@
 
 This guide covers setting up optional MCP (Model Context Protocol) servers for enhanced functionality.
 
+For the current Zeus Brain agent workflow, see [Zeus Brain MCP For Agents](docs/ZEUS-BRAIN-MCP-FOR-AGENTS.md). That runbook explains the difference between Neo4j Browser, Brain/wiki, local-brain-search, zeus-brain MCP, and Linear without exposing secrets.
+
 > **Note**: MCP servers are **optional**. The core functionality (semantic search, connection discovery) works with **Local Brain Search** which requires only Python. MCP servers add extra capabilities like diagram generation and ebook processing.
 
 ---
@@ -10,6 +12,7 @@ This guide covers setting up optional MCP (Model Context Protocol) servers for e
 
 | MCP Server | Purpose | Required? |
 |------------|---------|-----------|
+| zeus-brain | Agent access to the Brain graph and local wiki context | Recommended for Zeus Brain work |
 | Mermaid Diagram | Generate PNG/SVG diagrams | Optional |
 | Ebook MCP | Process EPUB/PDF files | Optional |
 
@@ -50,6 +53,20 @@ cp .mcp.json.template .mcp.json
 ---
 
 ## Server Setup
+
+### 0. Zeus Brain MCP (Recommended for Zeus Brain work)
+
+Current local endpoint:
+
+```text
+http://127.0.0.1:8788/mcp
+```
+
+Studio or LAN clients use the same `/mcp` path on the Brain host's LAN/Tailscale address.
+
+Agents should use `zeus_brain_status` first, then `zeus_brain_search`, `zeus_brain_get`, and graph tools as needed. Do not put Neo4j passwords, MCP tokens, `.env` contents, or private client config into docs, Linear, PRs, or prompts.
+
+See [Zeus Brain MCP For Agents](docs/ZEUS-BRAIN-MCP-FOR-AGENTS.md) for the full operating contract.
 
 ### 1. Mermaid Diagram Server (Optional)
 

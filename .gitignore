@@ -196,3 +196,4 @@ resources/local-brain-search/data/*.faiss
 resources/local-brain-search/data/*.pkl
 resources/local-brain-search/data/q_values.json
 resources/local-brain-search/data/usage_history.jsonl
+resources/local-brain-search/data/backups/

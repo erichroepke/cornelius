@@ -16,9 +16,9 @@ http://localhost:8789
 
 ## Data Sources
 
-- Wiki: `/Users/erichroepke/Desktop/Brain/wiki`
-- BDG sidecar: `/Users/erichroepke/Cornelius/resources/brain-graph/data/graph_enrichments.json`
-- FAISS metadata: `/Users/erichroepke/Cornelius/resources/local-brain-search/data/brain_metadata.pkl`
-- Neo4j: configured from `/Users/erichroepke/Cornelius/resources/brain-graph/.env`
+- Wiki: `/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain/wiki`
+- BDG sidecar: `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/data/graph_enrichments.json`
+- FAISS metadata: `/Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/data/brain_metadata.pkl`
+- Neo4j: configured from `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/.env`
 
 The browser never receives the Neo4j password. The server reads credentials locally and exposes only read-only status/search endpoints.

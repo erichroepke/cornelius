@@ -23,8 +23,8 @@ Configure via .env (alongside docker-compose.neo4j.yml):
 
 Plug into a project:
     claude mcp add -s user zeus-brain \\
-        /Users/erichroepke/Cornelius/resources/local-brain-search/venv/bin/python \\
-        /Users/erichroepke/Cornelius/resources/brain-graph/mcp_server.py
+        /Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/venv/bin/python \\
+        /Users/erichroepke/Desktop/Cornelius/resources/brain-graph/mcp_server.py
 """
 from __future__ import annotations
 
@@ -58,8 +58,13 @@ ZEUS_BRAIN_TOKEN = os.environ.get("ZEUS_BRAIN_TOKEN", "")
 MCP_WRITE_TOKEN = os.environ.get("MCP_WRITE_TOKEN", "")
 
 # Vault root — atoms are written relative to this directory.
-# Default: ~/Desktop/Brain (matches Cornelius VAULT_BASE_PATH)
-VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Desktop" / "Brain"))
+# Default: canonical master Brain repo; /Users/erichroepke/Desktop/Brain is a stub.
+VAULT_ROOT = Path(
+    os.environ.get(
+        "VAULT_ROOT",
+        "/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain",
+    )
+)
 BRAIN_GRAPH_DIR = Path(__file__).resolve().parent
 LBS_METADATA = Path(
     os.environ.get(

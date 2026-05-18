@@ -1,10 +1,10 @@
 import json, subprocess
 from pathlib import Path
 
-PASS = subprocess.check_output(['bash', '-c', 'grep BRAIN_NEO4J_PASS ~/Cornelius/resources/brain-graph/.env | cut -d= -f2']).decode().strip()
+PASS = subprocess.check_output(['bash', '-c', 'grep BRAIN_NEO4J_PASS /Users/erichroepke/Desktop/Cornelius/resources/brain-graph/.env | cut -d= -f2']).decode().strip()
 
 for pass_name, threshold in [('firstpass', 0.85), ('secondpass', 0.85)]:
-    dir_path = Path(f'~/Cornelius/resources/brain-graph/data/team-b-{pass_name}').expanduser()
+    dir_path = Path(f'/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/data/team-b-{pass_name}')
     edges = []
     for f in sorted(dir_path.glob('proposals-*.jsonl')):
         for line in f.read_text().splitlines():

@@ -11,7 +11,7 @@
 set -euo pipefail
 
 LOG_FILE="/tmp/sync-brain-to-studio.log"
-SOURCE="/Users/erichroepke/Desktop/Brain/"
+SOURCE="/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain/"
 DEST="studio:~/Desktop/Brain-replica/"
 
 # Pre-flight: ensure Studio reachable on LAN
@@ -47,7 +47,7 @@ else
 fi
 
 # Verify atom count parity (best-effort)
-LOCAL_COUNT=$(find /Users/erichroepke/Desktop/Brain -type f -name "*.md" -not -path "*/.git/*" | wc -l | tr -d ' ')
+LOCAL_COUNT=$(find /Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain -type f -name "*.md" -not -path "*/.git/*" | wc -l | tr -d ' ')
 REMOTE_COUNT=$(ssh studio "find ~/Desktop/Brain-replica -type f -name '*.md' -not -path '*/.git/*' 2>/dev/null | wc -l" | tr -d ' ')
 echo "[$(date -Iseconds)] Atom parity: laptop=$LOCAL_COUNT studio=$REMOTE_COUNT" | tee -a "$LOG_FILE"
 

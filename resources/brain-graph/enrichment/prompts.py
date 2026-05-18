@@ -1,7 +1,7 @@
 """Edge proposal prompt template + JSON response parser.
 
 Edge type vocabulary mirrors the Cornelius BDG schema EXACTLY
-(see ~/Cornelius/resources/brain-graph/models.py::EdgeType). Six types,
+(see /Users/erichroepke/Desktop/Cornelius/resources/brain-graph/models.py::EdgeType). Six types,
 each with specific staleness-propagation semantics defined in
 BRAIN-DEPENDENCY-GRAPH-ARCHITECTURE.md. Do NOT add new types here —
 the BDG schema is the source of truth.

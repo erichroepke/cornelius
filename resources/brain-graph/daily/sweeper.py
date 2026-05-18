@@ -35,7 +35,7 @@ DATA_DIR = _HERE.parent / "data"
 STATE_FILE = DATA_DIR / "raw-inventory.last.json"
 
 HOME = Path.home()
-BRAIN_PATH = HOME / "Desktop" / "Brain"
+BRAIN_PATH = Path("/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain")
 
 # ---------------------------------------------------------------------------
 # Scan configuration

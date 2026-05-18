@@ -18,14 +18,14 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/erichroepke/Cornelius/resources/local-brain-search/venv/bin/python</string>
+        <string>/Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/venv/bin/python</string>
         <string>-m</string>
         <string>daily.cli</string>
         <string>run</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/erichroepke/Cornelius/resources/brain-graph</string>
+    <string>/Users/erichroepke/Desktop/Cornelius/resources/brain-graph</string>
 
     <key>EnvironmentVariables</key>
     <dict>

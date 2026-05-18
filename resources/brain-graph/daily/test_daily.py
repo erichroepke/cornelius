@@ -1,7 +1,7 @@
 """Unit tests for the daily routine (router classification + digest formatting + cli arg parsing).
 
 Run with:
-    cd ~/Cornelius/resources/brain-graph
+    cd /Users/erichroepke/Desktop/Cornelius/resources/brain-graph
     python -m pytest daily/test_daily.py -q
 """
 from __future__ import annotations
@@ -119,6 +119,45 @@ class TestDigest:
         assert "`/extract-insights`" in text
         assert "`bootstrap`" in text and "`ok`" in text
 
+    def test_digest_renders_live_ingest_actions_schema(self, tmp_path: Path, monkeypatch) -> None:
+        """Live processor audit rows should populate digest sections without legacy tables."""
+        monkeypatch.setattr(digest, "BRAIN_PATH", tmp_path)
+        monkeypatch.setattr(digest, "CHANGELOG_DIR", tmp_path / "wiki" / "Meta" / "Changelogs")
+
+        db = tmp_path / "audit.db"
+        with sqlite3.connect(db) as conn:
+            conn.executescript("""
+                CREATE TABLE ingest_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_date TEXT NOT NULL,
+                    ts TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    src_path TEXT NOT NULL,
+                    dst_path TEXT,
+                    skill TEXT,
+                    trust TEXT,
+                    source_type TEXT,
+                    success INTEGER NOT NULL DEFAULT 1,
+                    notes TEXT
+                );
+            """)
+            conn.execute(
+                "INSERT INTO ingest_actions (run_date, ts, action, src_path, dst_path, skill, trust, source_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("2026-05-13", "2026-05-13T12:00:00", "COPY", "/tmp/foo.md", str(tmp_path / "raw" / "Quick Captures" / "foo.md"), None, "auto", "personal_note"),
+            )
+            conn.execute(
+                "INSERT INTO ingest_actions (run_date, ts, action, src_path, dst_path, skill, trust, source_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("2026-05-13", "2026-05-13T12:00:01", "SKILL:extract-insights", "/tmp/foo.md", None, "extract-insights", "auto", "personal_note"),
+            )
+            conn.commit()
+        monkeypatch.setattr(digest, "AUDIT_DB", db)
+
+        out = digest.write_digest(date(2026, 5, 13))
+        text = out.read_text()
+        assert "**New files discovered**: 1" in text
+        assert "`raw/Quick Captures`" in text
+        assert "`extract-insights`" in text
+
 
 # ---------------------------------------------------------------------------
 # CLI — argument parsing surface
@@ -158,3 +197,38 @@ class TestCliArgs:
         ns = argparse.Namespace(date="not-a-date")
         ret = daily_cli.cmd_rollback(ns)
         assert ret == 1
+
+    def test_status_reports_live_ingest_actions_schema(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        """status should report the current processor audit table when present."""
+        from daily import cli as daily_cli
+
+        db = tmp_path / "audit.db"
+        with sqlite3.connect(db) as conn:
+            conn.executescript("""
+                CREATE TABLE ingest_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_date TEXT NOT NULL,
+                    ts TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    src_path TEXT NOT NULL,
+                    dst_path TEXT,
+                    skill TEXT,
+                    trust TEXT,
+                    source_type TEXT,
+                    success INTEGER NOT NULL DEFAULT 1,
+                    notes TEXT
+                );
+            """)
+            conn.execute(
+                "INSERT INTO ingest_actions (run_date, ts, action, src_path, dst_path) VALUES (?, ?, ?, ?, ?)",
+                ("2026-05-13", "2026-05-13T12:00:00", "COPY", "/tmp/foo.md", "/tmp/Brain/raw/Quick Captures/foo.md"),
+            )
+            conn.commit()
+        monkeypatch.setattr(daily_cli, "AUDIT_DB", db)
+
+        import argparse
+        ret = daily_cli.cmd_status(argparse.Namespace())
+        output = capsys.readouterr().out
+        assert ret == 0
+        assert "ingest_actions: 1 rows" in output
+        assert "COPY: 1" in output

@@ -29,6 +29,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
+# Torch/sentence-transformers segfaults intermittently on this Studio when it
+# fans out aggressively. Clamp before importing faiss/sentence_transformers.
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
 import faiss
 import networkx as nx
 import numpy as np

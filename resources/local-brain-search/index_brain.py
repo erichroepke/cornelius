@@ -10,6 +10,7 @@ Options:
 """
 import argparse
 import hashlib
+import os
 import pickle
 import re
 import sys
@@ -114,6 +115,9 @@ def collect_notes() -> list[dict]:
 
     for pattern in INCLUDE_PATTERNS:
         for filepath in BRAIN_PATH.rglob(pattern):
+            if filepath.name.startswith("._"):
+                continue
+
             # Skip excluded folders
             relative = filepath.relative_to(BRAIN_PATH)
             if any(part in EXCLUDED_FOLDERS for part in relative.parts):
@@ -237,18 +241,53 @@ def add_semantic_edges(
                 )
 
 
+def encode_in_windows(
+    model: SentenceTransformer,
+    chunks: list[str],
+    batch_size: int,
+    window_size: int,
+) -> np.ndarray:
+    """Encode chunks in bounded windows to avoid torch/Python segfaults on large vaults."""
+    encoded_windows = []
+    total = len(chunks)
+
+    for start in range(0, total, window_size):
+        end = min(start + window_size, total)
+        print(f"  Encoding chunks {start + 1}-{end} of {total}", flush=True)
+        window_embeddings = model.encode(
+            chunks[start:end],
+            batch_size=batch_size,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        )
+        encoded_windows.append(np.asarray(window_embeddings, dtype='float32'))
+
+    if not encoded_windows:
+        return np.empty((0, EMBEDDING_DIM), dtype='float32')
+
+    return np.vstack(encoded_windows).astype('float32', copy=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Index Brain folder for local vector search')
     parser.add_argument('--force', action='store_true', help='Force re-index everything')
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=int(os.environ.get('BRAIN_EMBEDDING_BATCH_SIZE', '2')),
+        help='Embedding batch size',
+    )
+    parser.add_argument(
+        '--encode-window-size',
+        type=int,
+        default=int(os.environ.get('BRAIN_ENCODE_WINDOW_SIZE', '16')),
+        help='Number of chunks to pass to each model.encode call',
+    )
     args = parser.parse_args()
 
     # Ensure data directory exists
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    print(f"Loading embedding model: {EMBEDDING_MODEL}...")
-    start_time = time.time()
-    model = SentenceTransformer(EMBEDDING_MODEL)
-    print(f"  Model loaded in {time.time() - start_time:.1f}s")
 
     print(f"\nCollecting notes from {BRAIN_PATH}...")
     notes = collect_notes()
@@ -278,28 +317,27 @@ def main():
 
     print("\nChunking notes...")
     all_chunks = []
-    all_metadata = []
 
     for note in notes:
         chunks = chunk_by_headings(note['content'], note['filepath'])
         for j, chunk in enumerate(chunks):
             all_chunks.append(chunk['content'])
-            all_metadata.append({
-                'note_id': note['note_id'],
-                'title': note['title'],
-                'heading': chunk['heading'],
-                'filepath': str(note['filepath']),
-                'content_hash': note['content_hash'],
-                'chunk_index': j,
-                'content': chunk['content'],
-            })
 
     print(f"  Created {len(all_chunks)} chunks from {len(notes)} notes")
 
+    print(f"\nLoading embedding model: {EMBEDDING_MODEL}...")
+    start_time = time.time()
+    model = SentenceTransformer(EMBEDDING_MODEL)
+    print(f"  Model loaded in {time.time() - start_time:.1f}s")
+
     print("\nGenerating embeddings...")
     start_time = time.time()
-    embeddings = model.encode(all_chunks, show_progress_bar=True, normalize_embeddings=True)
-    embeddings = np.array(embeddings).astype('float32')
+    embeddings = encode_in_windows(
+        model,
+        all_chunks,
+        batch_size=args.batch_size,
+        window_size=args.encode_window_size,
+    )
     print(f"  Generated {len(embeddings)} embeddings in {time.time() - start_time:.1f}s")
 
     print("\nBuilding FAISS index...")
@@ -307,6 +345,24 @@ def main():
     index = faiss.IndexFlatIP(EMBEDDING_DIM)
     index.add(embeddings)
     print(f"  Index has {index.ntotal} vectors")
+
+    all_metadata = []
+    chunk_i = 0
+    for note in notes:
+        for j, chunk in enumerate(chunk_by_headings(note['content'], note['filepath'])):
+            all_metadata.append({
+                'note_id': note['note_id'],
+                'title': note['title'],
+                'heading': chunk['heading'],
+                'filepath': str(note['filepath']),
+                'content_hash': note['content_hash'],
+                'chunk_index': j,
+                'content': all_chunks[chunk_i],
+            })
+            chunk_i += 1
+
+    for note in notes:
+        note.pop('content', None)
 
     print(f"\nSaving index to {FAISS_INDEX_PATH}...")
     faiss.write_index(index, str(FAISS_INDEX_PATH))

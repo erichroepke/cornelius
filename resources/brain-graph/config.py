@@ -25,8 +25,8 @@ LBS_GRAPH_PATH = LBS_DATA_DIR / "brain_graph.pkl"
 LBS_METADATA_PATH = LBS_DATA_DIR / "brain_metadata.pkl"
 LBS_FAISS_PATH = LBS_DATA_DIR / "brain.faiss"
 
-# Vault path
-BRAIN_PATH = BRAIN_GRAPH_DIR.parent.parent / "Brain"
+# Vault path. /Users/erichroepke/Desktop/Brain is a stub; do not target it.
+BRAIN_PATH = Path("/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain")
 
 
 # =============================================================================

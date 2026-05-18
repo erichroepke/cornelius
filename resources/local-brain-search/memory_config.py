@@ -25,11 +25,14 @@ import os
 
 PROJECT_DIR = Path(__file__).parent
 DATA_DIR = PROJECT_DIR / "data"
-# Default now points at canonical Desktop/Brain (matches Cornelius .claude/settings.md
-# VAULT_BASE_PATH). The old ~/Cornelius/Brain default was a stale Cornelius template
-# that was trashed during the 2026-05-13 vault consolidation; LBS would silently
-# find 0 files and crash FAISS with "not enough values to unpack."
-BRAIN_PATH = Path(os.environ.get("BRAIN_PATH", Path.home() / "Desktop" / "Brain"))
+DEFAULT_BRAIN_PATH = (
+    Path.home()
+    / "Desktop"
+    / "ZEUS-BRAIN-STARTUP-2026-05-17"
+    / "Brain"
+    / "wiki"
+)
+BRAIN_PATH = Path(os.environ.get("BRAIN_PATH", DEFAULT_BRAIN_PATH))
 
 # =============================================================================
 # MEMORY CONFIGURATION

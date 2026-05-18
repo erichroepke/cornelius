@@ -198,8 +198,8 @@ path = brain.path("02-Permanent/foo.md", "02-Permanent/bar.md")
 Mount once:
 ```bash
 claude mcp add -s user zeus-brain \
-    ~/Cornelius/resources/local-brain-search/venv/bin/python \
-    ~/Cornelius/resources/brain-graph/mcp_server.py
+    /Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/venv/bin/python \
+    /Users/erichroepke/Desktop/Cornelius/resources/brain-graph/mcp_server.py
 ```
 
 Then in any project: `zeus_brain_orphans`, `zeus_brain_hubs`, `zeus_brain_path`, `zeus_brain_graph_query` are all available as tools.
@@ -224,15 +224,15 @@ The atom `id` (vault path) is the only stable primary key. Everything else is re
 
 | Concern | File |
 |---------|------|
-| Data model | `~/Cornelius/resources/brain-graph/models.py` |
-| Schema config | `~/Cornelius/resources/brain-graph/brain_graph_config.yaml` |
-| Classification logic | `~/Cornelius/resources/brain-graph/classify.py` |
-| Persistence (sidecar) | `~/Cornelius/resources/brain-graph/store.py` |
-| Cypher export | `~/Cornelius/resources/brain-graph/export_to_cypher.py` |
-| Neo4j loader | `~/Cornelius/resources/brain-graph/load_neo4j.sh` |
-| Neo4j Docker config | `~/Cornelius/resources/brain-graph/docker-compose.neo4j.yml` |
-| MCP server | `~/Cornelius/resources/brain-graph/mcp_server.py` |
-| Python SDK | `~/Cornelius/resources/brain-graph/sdk/zeus_brain/` |
-| Architecture spec | `~/Cornelius/resources/brain-graph/BRAIN-DEPENDENCY-GRAPH-ARCHITECTURE.md` |
+| Data model | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/models.py` |
+| Schema config | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/brain_graph_config.yaml` |
+| Classification logic | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/classify.py` |
+| Persistence (sidecar) | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/store.py` |
+| Cypher export | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/export_to_cypher.py` |
+| Neo4j loader | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/load_neo4j.sh` |
+| Neo4j Docker config | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/docker-compose.neo4j.yml` |
+| MCP server | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/mcp_server.py` |
+| Python SDK | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/sdk/zeus_brain/` |
+| Architecture spec | `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/BRAIN-DEPENDENCY-GRAPH-ARCHITECTURE.md` |
 
-For onboarding, see `~/Cornelius/docs/QUICKSTART-BDG.md`.
+For onboarding, see `/Users/erichroepke/Desktop/Cornelius/docs/QUICKSTART-BDG.md`.

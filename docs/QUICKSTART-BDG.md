@@ -31,12 +31,12 @@ MATCH path = (s:Signal)-[*..4]->(syn:Synthesis) RETURN path LIMIT 5;
 |---|---|
 | Python venv | already set up if you ran `./resources/local-brain-search/run_index.sh` once |
 | Docker Desktop | install from [docker.com](https://docker.com), then **launch the .app** before continuing — `docker ps` must return successfully |
-| Brain at `$VAULT_BASE_PATH` | check `~/Cornelius/.claude/settings.md` |
+| Brain at `$VAULT_BASE_PATH` | check `/Users/erichroepke/Desktop/Cornelius/.claude/settings.md` |
 | Neo4j credentials | copy `resources/brain-graph/.env.example` → `resources/brain-graph/.env`, edit `NEO4J_PASS` |
 
 ```bash
 # One-time credential setup
-cd ~/Cornelius/resources/brain-graph
+cd /Users/erichroepke/Desktop/Cornelius/resources/brain-graph
 cp .env.example .env
 $EDITOR .env   # set NEO4J_PASS to a real password
 ```
@@ -48,7 +48,7 @@ $EDITOR .env   # set NEO4J_PASS to a real password
 ## Step 1 — Bootstrap the BDG (30 sec)
 
 ```bash
-cd ~/Cornelius/resources/brain-graph
+cd /Users/erichroepke/Desktop/Cornelius/resources/brain-graph
 ./run_brain_graph.sh bootstrap
 ```
 

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.zeus-brain.local-search</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/venv/bin/python</string>
+    <string>/Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/daemon.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/erichroepke/Desktop/Cornelius/resources/local-brain-search</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BRAIN_DAEMON_PORT</key>
+    <string>7437</string>
+    <key>TOKENIZERS_PARALLELISM</key>
+    <string>false</string>
+    <key>OMP_NUM_THREADS</key>
+    <string>1</string>
+    <key>MKL_NUM_THREADS</key>
+    <string>1</string>
+    <key>VECLIB_MAXIMUM_THREADS</key>
+    <string>1</string>
+    <key>PYTHONFAULTHANDLER</key>
+    <string>1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/zeus-brain-local-search.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/zeus-brain-local-search.err.log</string>
+</dict>
+</plist>

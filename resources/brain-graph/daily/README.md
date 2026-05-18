@@ -1,6 +1,6 @@
 # Daily Routine — Brain Auto-Organizer
 
-A scheduled pipeline that ingests new content from anywhere on the hard drive (and the Mac Studio over Tailscale when reachable), classifies it, routes it into `~/Desktop/Brain/`, runs Cornelius extraction skills on appropriate content, re-bootstraps the BDG, and writes a daily digest.
+A scheduled pipeline that ingests new content from anywhere on the hard drive (and the Mac Studio over Tailscale when reachable), classifies it, routes it into the canonical Brain repo at `/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain/`, runs Cornelius extraction skills on appropriate content, re-bootstraps the BDG, and writes a daily digest.
 
 ## What it does, in order
 
@@ -10,21 +10,21 @@ A scheduled pipeline that ingests new content from anywhere on the hard drive (a
 | 2 | `router.py` | Classifies each new file by extension + frontmatter + content sniff. Proposes a destination (`raw/Quick Captures`, `wiki/Sources/Books`, `wiki/AI Extracted Notes`, etc.). |
 | 3 | `processor.py` | For new sources, invokes Cornelius `/extract-insights` (your content) or `/extract-document-insights` (PDFs/EPUBs) via `claude -p` headless. Logs to SQLite. Respects `--max-cost-cents` cap. |
 | 4 | `enricher.py` | Re-runs `./run_brain_graph.sh bootstrap --force` then `./load_neo4j.sh` to refresh the BDG sidecar and Neo4j projection. |
-| 5 | `digest.py` | Writes `~/Desktop/Brain/wiki/Meta/Changelogs/daily-YYYY-MM-DD.md` summarizing the run. |
+| 5 | `digest.py` | Writes `/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain/wiki/Meta/Changelogs/daily-YYYY-MM-DD.md` summarizing the run. |
 
 ## Install
 
 ```bash
 # 1. Verify Python deps are in the LBS venv (already installed):
-source ~/Cornelius/resources/local-brain-search/venv/bin/activate
+source /Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/venv/bin/activate
 python -c "import sqlite3, hashlib, subprocess; print('ok')"
 
 # 2. Dry-run to validate plumbing (no writes, no API calls):
-cd ~/Cornelius/resources/brain-graph
+cd /Users/erichroepke/Desktop/Cornelius/resources/brain-graph
 python -m daily.cli run --dry-run
 
 # 3. Install launchd job to run daily at 6am:
-cp ~/Cornelius/resources/brain-graph/daily/com.zeus-brain.daily-ingest.plist \
+cp /Users/erichroepke/Desktop/Cornelius/resources/brain-graph/daily/com.zeus-brain.daily-ingest.plist \
    ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
 launchctl load ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
 
@@ -35,7 +35,7 @@ launchctl list | grep zeus-brain.daily-ingest
 ## Run manually
 
 ```bash
-cd ~/Cornelius/resources/brain-graph
+cd /Users/erichroepke/Desktop/Cornelius/resources/brain-graph
 
 # Default — full pipeline
 python -m daily.cli run
@@ -52,7 +52,7 @@ python -m daily.cli status
 
 ## Rollback
 
-Every move into `raw/` or `wiki/` is logged to `~/Cornelius/resources/brain-graph/data/daily_audit.db`. To reverse a day's moves:
+Every move into `raw/` or `wiki/` is logged to `/Users/erichroepke/Desktop/Cornelius/resources/brain-graph/data/daily_audit.db`. To reverse a day's moves:
 
 ```bash
 python -m daily.cli rollback 2026-05-13
@@ -97,4 +97,4 @@ rm ~/Library/LaunchAgents/com.zeus-brain.daily-ingest.plist
 | Sweeper finds 0 files even though there are new files | Check `data/raw-inventory.last.json` mtime — may need `rm data/raw-inventory.last.json` for full re-sweep |
 | Processor stuck on a single file for >10 min | Likely a hung `claude -p` subprocess. Kill with `pkill -f 'daily.cli run'`, restart |
 | Neo4j reload fails | `docker ps` + check container health. If down: `docker compose -f docker-compose.neo4j.yml up -d` |
-| Wrong layer assignments after run | LBS index may be stale. `cd ~/Cornelius/resources/local-brain-search && ./run_index.sh`, then re-run daily routine |
+| Wrong layer assignments after run | LBS index may be stale. `cd /Users/erichroepke/Desktop/Cornelius/resources/local-brain-search && ./run_index.sh`, then re-run daily routine |
