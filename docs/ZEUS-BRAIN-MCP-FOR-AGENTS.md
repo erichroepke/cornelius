@@ -32,6 +32,56 @@ http://<brain-host-lan-ip>:8788/mcp
 
 Do not paste bearer tokens, Neo4j passwords, `.env` contents, or private LAN inventories into Linear, PR descriptions, public docs, or model-visible prompts. If a client needs a token, configure it in that client's private MCP settings or environment, not in a task description.
 
+## Install In Local Agent Clients
+
+The daemon must be running first:
+
+```bash
+launchctl print gui/501/com.zeus-brain.mcp-daemon
+```
+
+Claude Code global install:
+
+```bash
+claude mcp add --transport http zeus-brain http://127.0.0.1:8788/mcp
+claude mcp list | grep zeus-brain
+```
+
+Expected:
+
+```text
+zeus-brain: http://127.0.0.1:8788/mcp (HTTP) - ✓ Connected
+```
+
+Codex global install:
+
+```bash
+codex mcp add zeus-brain --url http://127.0.0.1:8788/mcp
+codex mcp get zeus-brain
+```
+
+Expected:
+
+```text
+transport: streamable_http
+url: http://127.0.0.1:8788/mcp
+enabled: true
+```
+
+Linear itself does not directly call arbitrary local MCP servers. Linear is the task system. Linear-connected agents can use Zeus Brain if their runtime also has the `zeus-brain` MCP configured. Put the instruction in Linear issues, not secrets:
+
+```text
+Before answering, use zeus-brain MCP: run zeus_brain_status, then zeus_brain_search for the relevant topic, and cite the Brain/wiki note paths.
+```
+
+For another Mac on the same private network, use the Brain host LAN or Tailscale address:
+
+```bash
+claude mcp add --transport http zeus-brain http://<brain-host-lan-or-tailscale-ip>:8788/mcp
+```
+
+Prefer Tailscale over public internet exposure. Do not port-forward `8788` to the open internet.
+
 ## How Agents Should Search
 
 Start with the Brain/wiki mental model, then choose the least-privileged search path:
@@ -49,6 +99,54 @@ cd /Users/erichroepke/Desktop/Cornelius
 ```
 
 When reporting findings, cite the Brain/wiki note path or atom id that informed the answer. If results came from an older index or a failed health check, state that limitation instead of presenting the result as current.
+
+## Plain-English Prompts
+
+Use one of these in Claude Code, Codex, or a Linear worker that has MCP access:
+
+```text
+Use zeus-brain MCP. Check status first, then search the wiki for "Hold My Leg project brief" and summarize the strongest matching notes with paths.
+```
+
+```text
+Search my Zeus Brain for everything related to [topic]. Use graph neighborhoods if you find a relevant atom.
+```
+
+```text
+Before solving this Linear issue, use zeus-brain MCP to find prior plans, related wiki notes, and graph context. Cite the note paths in your answer.
+```
+
+## Write And Update Scope
+
+Read/search tools are safe defaults. Writes are intentionally gated:
+
+- `write_atom` requires `MCP_WRITE_TOKEN` and a matching `token` argument.
+- Destination paths must be vault-relative and start with `wiki/` or `raw/`.
+- Markdown content must include YAML frontmatter.
+- Existing matching content is deduplicated by MD5.
+- File writes use tempfile + `os.replace` for atomic replacement.
+- Every write is appended to `resources/brain-graph/data/mcp_write_audit.jsonl`.
+
+Automatic broad-drive ingestion is not fully enabled yet. The next product milestone is an approval queue: detect new files, present them in Brain Console, let Erich choose the project/lens/profile, then process and refresh the indexes.
+
+## Security Model
+
+Current safe posture:
+
+- Localhost access for this Mac: `http://127.0.0.1:8788/mcp`.
+- Private LAN or Tailscale for trusted machines.
+- No public port forwarding.
+- No secrets in Linear, docs, PRs, or prompts.
+- Use read-only tools by default.
+- Use `write_atom` only through a task that explicitly needs to create/update Brain notes.
+
+Future hardening before any public or semi-public hosting:
+
+- Require bearer-token auth at the HTTP transport layer, not only per-tool token arguments.
+- Split read token and write token.
+- Add request logging and rate limits.
+- Bind to Tailscale-only IP or put behind a private reverse proxy.
+- Add token rotation documentation.
 
 ## Linear Agent Rules
 
