@@ -1,0 +1,7 @@
+interface:
+  display_name: "Erich"
+  short_description: "Search skills and route plans"
+  default_prompt: "Use $erich to search the current skills, lay the plan, and route this through the right workflow."
+
+policy:
+  allow_implicit_invocation: true
