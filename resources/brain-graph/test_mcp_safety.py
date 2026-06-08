@@ -1,4 +1,4 @@
-"""Unit tests for zeus-brain MCP server safety functions.
+"""Unit tests for niklas MCP server safety functions.
 
 These run without a live Neo4j or MCP runtime — they exercise the pure
 validation logic (Cypher denylist + token gate + write_atom safety) in isolation.

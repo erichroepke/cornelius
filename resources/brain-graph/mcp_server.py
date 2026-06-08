@@ -1,30 +1,30 @@
-"""zeus-brain MCP server (read-scope v1).
+"""Niklas MCP server (read-scope v1).
 
-Exposes the Brain Dependency Graph as MCP tools any Claude Code project can
+Exposes the Niklas graph as MCP tools any Claude Code project can
 mount. stdio transport by default (no network surface). Optional bearer-token
-gate via ZEUS_BRAIN_TOKEN env var.
+gate via NIKLAS_READ_TOKEN env var.
 
 Tools (read scope):
-- zeus_brain_status                  — sidecar + Neo4j health
-- zeus_brain_search                  — hybrid (vector via LanceDB-future + graph)
-- zeus_brain_get                     — atom by id
-- zeus_brain_neighborhood            — k-hop ego graph
-- zeus_brain_orphans                 — atoms with no edges
-- zeus_brain_hubs                    — atoms ranked by degree
-- zeus_brain_decay_candidates        — stale + low-confidence atoms
-- zeus_brain_path                    — shortest path between two atoms
-- zeus_brain_graph_query             — raw read-only Cypher (denylist mutating clauses)
+- niklas_graph_status                — sidecar + Neo4j health
+- niklas_graph_search                — hybrid (vector via LanceDB-future + graph)
+- niklas_graph_get                   — atom by id
+- niklas_graph_neighborhood          — k-hop ego graph
+- niklas_graph_orphans               — atoms with no edges
+- niklas_graph_hubs                  — atoms ranked by degree
+- niklas_graph_decay_candidates      — stale + low-confidence atoms
+- niklas_graph_path                  — shortest path between two atoms
+- niklas_graph_query                 — raw read-only Cypher (denylist mutating clauses)
 
 Configure via .env (alongside docker-compose.neo4j.yml):
     NEO4J_URI=bolt://localhost:7689
     BRAIN_NEO4J_USER=neo4j
     BRAIN_NEO4J_PASS=<your password>
-    ZEUS_BRAIN_TOKEN=<optional shared secret; if set, callers must pass it>
+    NIKLAS_READ_TOKEN=<optional shared secret; if set, callers must pass it>
 
 Plug into a project:
-    claude mcp add -s user zeus-brain \\
-        /Users/erichroepke/Desktop/Cornelius/resources/local-brain-search/venv/bin/python \\
-        /Users/erichroepke/Desktop/Cornelius/resources/brain-graph/mcp_server.py
+    claude mcp add -s user niklas \\
+        /Users/erichroepke/Desktop/Niklas/03-Runtime/Cornelius/resources/local-brain-search/venv/bin/python \\
+        /Users/erichroepke/Desktop/Niklas/03-Runtime/Cornelius/resources/brain-graph/mcp_server.py
 """
 from __future__ import annotations
 
@@ -40,6 +40,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from runtime_paths import detect_brain_root
+
 # ---------------------------------------------------------------------------
 # Config & boot guards
 # ---------------------------------------------------------------------------
@@ -54,18 +56,25 @@ except ImportError:
 NEO4J_URI = os.environ.get("NEO4J_URI") or os.environ.get("BRAIN_NEO4J_URI") or "bolt://localhost:7689"
 NEO4J_USER = os.environ.get("NEO4J_USER") or os.environ.get("BRAIN_NEO4J_USER") or "neo4j"
 NEO4J_PASS = os.environ.get("NEO4J_PASS") or os.environ.get("BRAIN_NEO4J_PASS") or ""
-ZEUS_BRAIN_TOKEN = os.environ.get("ZEUS_BRAIN_TOKEN", "")
+NIKLAS_READ_TOKEN = os.environ.get("NIKLAS_READ_TOKEN", "")
 MCP_WRITE_TOKEN = os.environ.get("MCP_WRITE_TOKEN", "")
+NIKLAS_DISABLE_WRITES = os.environ.get("NIKLAS_DISABLE_WRITES", "").lower() in {"1", "true", "yes", "on"}
+NIKLAS_READ_SCOPE = "niklas:read"
 
 # Vault root — atoms are written relative to this directory.
 # Default: canonical master Brain repo; /Users/erichroepke/Desktop/Brain is a stub.
-VAULT_ROOT = Path(
-    os.environ.get(
-        "VAULT_ROOT",
-        "/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain",
-    )
-)
+VAULT_ROOT = detect_brain_root("VAULT_ROOT")
 BRAIN_GRAPH_DIR = Path(__file__).resolve().parent
+NIKLAS_RESOURCES_DIR = BRAIN_GRAPH_DIR.parent
+if str(NIKLAS_RESOURCES_DIR) not in sys.path:
+    sys.path.insert(0, str(NIKLAS_RESOURCES_DIR))
+
+from niklas.ingest import ingest_path as niklas_ingest_path_impl
+from niklas.linear import LinearClient
+from niklas.orientation import build_orientation as niklas_orientation_impl
+from niklas.retrieval import build_context_pack as niklas_context_pack_impl
+from niklas.store import NiklasStore
+
 LBS_METADATA = Path(
     os.environ.get(
         "LBS_METADATA",
@@ -79,6 +88,8 @@ _AUDIT_LOG = Path(__file__).parent / "data" / "mcp_write_audit.jsonl"
 # Lazy-imported MCP + Neo4j (so this file imports cleanly before pip install)
 try:
     from mcp.server.fastmcp import FastMCP  # type: ignore
+    from mcp.server.auth.provider import AccessToken  # type: ignore
+    from mcp.server.auth.settings import AuthSettings  # type: ignore
 except ImportError as e:
     print(
         "ERROR: mcp package not installed. Run:\n"
@@ -90,13 +101,11 @@ except ImportError as e:
 try:
     from neo4j import GraphDatabase  # type: ignore
     from neo4j.exceptions import ServiceUnavailable  # type: ignore
-except ImportError as e:
-    print(
-        "ERROR: neo4j driver not installed. Run:\n"
-        "  pip install -r requirements-mcp.txt",
-        file=sys.stderr,
-    )
-    raise SystemExit(2) from e
+except ImportError:
+    GraphDatabase = None  # type: ignore
+
+    class ServiceUnavailable(Exception):  # type: ignore
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +122,11 @@ def _get_driver():
     global _driver
     if _driver is not None:
         return _driver
+    if GraphDatabase is None:
+        raise RuntimeError(
+            "neo4j driver not installed. Neo4j-backed Niklas graph tools are unavailable. "
+            "Run: pip install -r requirements-mcp.txt"
+        )
     if not NEO4J_PASS:
         raise RuntimeError(
             "NEO4J_PASS not set. Copy .env.example to .env and edit it, "
@@ -156,6 +170,12 @@ def _load_metadata() -> list[dict[str, Any]]:
     with resolved.open("rb") as f:
         _metadata_cache = pickle.load(f)
     return _metadata_cache or []
+
+
+def _sidecar_count(value: Any) -> int | None:
+    if isinstance(value, (dict, list, tuple, set)):
+        return len(value)
+    return None
 
 
 def _metadata_keyword_search(query: str, k: int, seen: set[str]) -> list[dict]:
@@ -205,7 +225,7 @@ def _assert_read_only(cypher: str) -> None:
     """Raise if the Cypher contains any mutating clause."""
     if _MUTATING_CLAUSES.search(cypher):
         raise PermissionError(
-            "Mutating Cypher rejected by zeus-brain read-scope server. "
+            "Mutating Cypher rejected by Niklas read-scope server. "
             "Allowed: MATCH, OPTIONAL MATCH, WITH, RETURN, UNWIND, WHERE, ORDER BY, LIMIT, SKIP, CALL apoc.<read-only>."
         )
 
@@ -214,27 +234,75 @@ def _assert_read_only(cypher: str) -> None:
 # Auth (optional bearer-token gate)
 # ---------------------------------------------------------------------------
 
+def _http_header_auth_enabled() -> bool:
+    transport = os.environ.get("MCP_TRANSPORT", "stdio").lower()
+    return bool(NIKLAS_READ_TOKEN and transport in {"http", "streamable-http", "sse"})
+
+
 def _assert_authed(token: Optional[str]) -> None:
-    """If ZEUS_BRAIN_TOKEN is configured, callers must match it."""
-    if not ZEUS_BRAIN_TOKEN:
+    """If NIKLAS_READ_TOKEN is configured, callers must match it.
+
+    HTTP MCP clients authenticate with Authorization: Bearer headers. When
+    transport-level bearer auth is active, requests without a valid header are
+    rejected before tool code runs, so individual tool calls do not need a
+    duplicate token argument.
+    """
+    if not NIKLAS_READ_TOKEN:
         return  # auth disabled
-    if token != ZEUS_BRAIN_TOKEN:
-        raise PermissionError("zeus-brain: invalid or missing token")
+    if token == NIKLAS_READ_TOKEN:
+        return
+    if token is None and _http_header_auth_enabled():
+        return
+    raise PermissionError("niklas: invalid or missing token")
+
+
+class _StaticReadTokenVerifier:
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if NIKLAS_READ_TOKEN and token == NIKLAS_READ_TOKEN:
+            return AccessToken(
+                token=token,
+                client_id="niklas-readonly",
+                scopes=[NIKLAS_READ_SCOPE],
+            )
+        return None
+
+
+def _build_auth_settings() -> AuthSettings | None:
+    if not NIKLAS_READ_TOKEN:
+        return None
+    host = os.environ.get("MCP_BIND_HOST", "127.0.0.1")
+    port = os.environ.get("MCP_BIND_PORT", "8787")
+    if host == "0.0.0.0":
+        host = "127.0.0.1"
+    resource_url = os.environ.get("NIKLAS_MCP_RESOURCE_URL", f"http://{host}:{port}/mcp")
+    issuer_url = os.environ.get("NIKLAS_AUTH_ISSUER_URL", "http://127.0.0.1")
+    return AuthSettings(
+        issuer_url=issuer_url,
+        resource_server_url=resource_url,
+        required_scopes=[NIKLAS_READ_SCOPE],
+    )
+
+
+_AUTH_SETTINGS = _build_auth_settings()
 
 
 # ---------------------------------------------------------------------------
 # MCP server + tools
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("zeus-brain")
+mcp = FastMCP(
+    "niklas",
+    auth=_AUTH_SETTINGS,
+    token_verifier=_StaticReadTokenVerifier() if _AUTH_SETTINGS else None,
+)
 
 
 @mcp.tool()
-async def zeus_brain_status(token: Optional[str] = None) -> dict:
+async def niklas_graph_status(token: Optional[str] = None) -> dict:
     """Return health + counts for the Brain Dependency Graph.
 
     Args:
-        token: Optional bearer token (required only if ZEUS_BRAIN_TOKEN is set in env).
+        token: Optional bearer token (required only if NIKLAS_READ_TOKEN is set in env).
     """
     _assert_authed(token)
     out: dict[str, Any] = {
@@ -250,6 +318,18 @@ async def zeus_brain_status(token: Optional[str] = None) -> dict:
     if sidecar.exists():
         out["sidecar_present"] = True
         out["sidecar_size_bytes"] = sidecar.stat().st_size
+        try:
+            sidecar_payload = _load_sidecar()
+            sidecar_atom_count = _sidecar_count(sidecar_payload.get("nodes"))
+            sidecar_edge_count = _sidecar_count(sidecar_payload.get("edges"))
+            out["sidecar_atom_count"] = sidecar_atom_count
+            out["sidecar_edge_count"] = sidecar_edge_count
+            if out["atom_count"] is None:
+                out["atom_count"] = sidecar_atom_count
+            if out["edge_count"] is None:
+                out["edge_count"] = sidecar_edge_count
+        except Exception as e:
+            out["sidecar_error"] = f"sidecar unreadable: {type(e).__name__}"
 
     # Check Neo4j reachable
     try:
@@ -267,7 +347,7 @@ async def zeus_brain_status(token: Optional[str] = None) -> dict:
 
 
 @mcp.tool()
-async def zeus_brain_get(atom_id: str, token: Optional[str] = None) -> dict:
+async def niklas_graph_get(atom_id: str, token: Optional[str] = None) -> dict:
     """Return a single atom + its immediate neighbors.
 
     Args:
@@ -292,7 +372,7 @@ async def zeus_brain_get(atom_id: str, token: Optional[str] = None) -> dict:
 
 
 @mcp.tool()
-async def zeus_brain_neighborhood(
+async def niklas_graph_neighborhood(
     atom_id: str,
     depth: int = 2,
     limit: int = 100,
@@ -321,7 +401,7 @@ async def zeus_brain_neighborhood(
 
 
 @mcp.tool()
-async def zeus_brain_orphans(limit: int = 50, token: Optional[str] = None) -> list[dict]:
+async def niklas_graph_orphans(limit: int = 50, token: Optional[str] = None) -> list[dict]:
     """Atoms with zero edges (review candidates)."""
     _assert_authed(token)
     return _run_read(
@@ -336,7 +416,7 @@ async def zeus_brain_orphans(limit: int = 50, token: Optional[str] = None) -> li
 
 
 @mcp.tool()
-async def zeus_brain_hubs(min_degree: int = 5, limit: int = 25, token: Optional[str] = None) -> list[dict]:
+async def niklas_graph_hubs(min_degree: int = 5, limit: int = 25, token: Optional[str] = None) -> list[dict]:
     """Atoms ranked by total degree (top connectors)."""
     _assert_authed(token)
     return _run_read(
@@ -353,7 +433,7 @@ async def zeus_brain_hubs(min_degree: int = 5, limit: int = 25, token: Optional[
 
 
 @mcp.tool()
-async def zeus_brain_decay_candidates(days: int = 90, limit: int = 50, token: Optional[str] = None) -> list[dict]:
+async def niklas_graph_decay_candidates(days: int = 90, limit: int = 50, token: Optional[str] = None) -> list[dict]:
     """Atoms with high staleness OR low lifecycle that may need review."""
     _assert_authed(token)
     return _run_read(
@@ -371,7 +451,7 @@ async def zeus_brain_decay_candidates(days: int = 90, limit: int = 50, token: Op
 
 
 @mcp.tool()
-async def zeus_brain_path(
+async def niklas_graph_path(
     from_id: str,
     to_id: str,
     max_hops: int = 4,
@@ -395,7 +475,7 @@ async def zeus_brain_path(
 
 
 @mcp.tool()
-async def zeus_brain_graph_query(cypher: str, params: Optional[dict] = None, token: Optional[str] = None) -> list[dict]:
+async def niklas_graph_query(cypher: str, params: Optional[dict] = None, token: Optional[str] = None) -> list[dict]:
     """Run a read-only Cypher query. Mutating clauses are rejected.
 
     Args:
@@ -412,7 +492,7 @@ async def zeus_brain_graph_query(cypher: str, params: Optional[dict] = None, tok
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-async def zeus_brain_search(
+async def niklas_graph_search(
     query: str,
     mode: str = "graph",
     k: int = 10,
@@ -428,26 +508,33 @@ async def zeus_brain_search(
     _assert_authed(token)
     limit = int(k)
     rows: list[dict[str, Any]] = []
+    neo4j_degraded = False
     if mode in ("vector", "hybrid") and _full_text_index_exists():
+        try:
+            rows.extend(_run_read(
+                """
+                CALL db.index.fulltext.queryNodes('atom_fulltext', $q) YIELD node, score
+                RETURN node.id AS id, node.layer AS layer, score, 'neo4j-fulltext' AS source
+                ORDER BY score DESC
+                LIMIT $k
+                """,
+                {"q": query, "k": limit},
+            ))
+        except Exception:
+            neo4j_degraded = True
+
+    try:
         rows.extend(_run_read(
             """
-            CALL db.index.fulltext.queryNodes('atom_fulltext', $q) YIELD node, score
-            RETURN node.id AS id, node.layer AS layer, score, 'neo4j-fulltext' AS source
-            ORDER BY score DESC
+            MATCH (a:Atom)
+            WHERE toLower(a.id) CONTAINS toLower($q)
+            RETURN a.id AS id, a.layer AS layer, 'neo4j-id' AS source
             LIMIT $k
             """,
             {"q": query, "k": limit},
         ))
-
-    rows.extend(_run_read(
-        """
-        MATCH (a:Atom)
-        WHERE toLower(a.id) CONTAINS toLower($q)
-        RETURN a.id AS id, a.layer AS layer, 'neo4j-id' AS source
-        LIMIT $k
-        """,
-        {"q": query, "k": limit},
-    ))
+    except Exception:
+        neo4j_degraded = True
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
@@ -458,7 +545,21 @@ async def zeus_brain_search(
         seen.add(atom_id)
         if len(deduped) >= limit:
             return deduped
-    deduped.extend(_metadata_keyword_search(query, limit - len(deduped), seen))
+    fallback = _metadata_keyword_search(query, limit - len(deduped), seen)
+    if neo4j_degraded:
+        for item in fallback:
+            item.setdefault("degraded", True)
+            item.setdefault("degraded_reason", "neo4j unavailable; served from local metadata fallback")
+    deduped.extend(fallback)
+    if neo4j_degraded and not deduped:
+        return [
+            {
+                "source": "degraded",
+                "degraded": True,
+                "degraded_reason": "neo4j unavailable and local metadata fallback returned no matches",
+                "query": query,
+            }
+        ]
     return deduped[:limit]
 
 
@@ -481,6 +582,8 @@ _FRONTMATTER_RE = re.compile(r"^---\n.*?---\n", re.DOTALL)
 
 def _assert_write_authed(token: Optional[str]) -> None:
     """Reject with PermissionError if MCP_WRITE_TOKEN is set and token does not match."""
+    if NIKLAS_DISABLE_WRITES:
+        raise PermissionError("write operations are disabled for this Niklas MCP process")
     if not MCP_WRITE_TOKEN:
         raise PermissionError(
             "write_atom: MCP_WRITE_TOKEN is not configured on this server — writes disabled"
@@ -670,6 +773,237 @@ async def write_atom(
 
 
 # ---------------------------------------------------------------------------
+# Niklas V1 tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def niklas_status(token: Optional[str] = None) -> dict:
+    """Return local Niklas SQLite graph status.
+
+    Args:
+        token: Optional bearer token (required only if NIKLAS_READ_TOKEN is set).
+    """
+    _assert_authed(token)
+    return NiklasStore().status()
+
+
+@mcp.tool()
+async def niklas_orient(
+    current_request: Optional[str] = None,
+    current_goal: Optional[str] = None,
+    project_hint: Optional[str] = None,
+    cwd: Optional[str] = None,
+    browser_url: Optional[str] = None,
+    chat_summary: Optional[str] = None,
+    surface: Optional[str] = None,
+    limit: int = 5,
+    token: Optional[str] = None,
+) -> dict:
+    """Orient the current chat/session inside Niklas before context retrieval.
+
+    Use this as the first Niklas call in a new work thread. It returns a
+    positioning packet plus clarifying questions the client should ask in chat.
+
+    Args:
+        current_request: The user's current request or task signal.
+        current_goal: Current session goal, if already known.
+        project_hint: Project name/scope hint, if already known.
+        cwd: Current working directory from the client environment.
+        browser_url: Visible browser URL, if relevant.
+        chat_summary: Short visible-chat summary.
+        surface: Primary work surface, such as repo, Linear, browser, CLI, MCP, notes, or chat.
+        limit: Maximum candidate starting nodes.
+        token: Optional bearer token.
+    """
+    _assert_authed(token)
+    return niklas_orientation_impl(
+        current_request=current_request,
+        current_goal=current_goal,
+        project_hint=project_hint,
+        cwd=cwd,
+        browser_url=browser_url,
+        chat_summary=chat_summary,
+        surface=surface,
+        limit=max(1, min(int(limit), 20)),
+    )
+
+
+@mcp.tool()
+async def niklas_ingest_path(
+    path: str,
+    project_scope: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    recursive: bool = False,
+    max_files: Optional[int] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Ingest a local file or directory into the Niklas graph.
+
+    This mutates the local SQLite graph and therefore requires MCP_WRITE_TOKEN.
+
+    Args:
+        path: Local file or directory path to ingest.
+        project_scope: Optional project name to attach to ingested nodes.
+        tags: Optional tags to attach to every ingested file.
+        recursive: Recursively ingest directories when true.
+        max_files: Optional safety cap for large imports.
+        token: Bearer token matching MCP_WRITE_TOKEN.
+    """
+    _assert_write_authed(token)
+    return niklas_ingest_path_impl(
+        path,
+        project_scope=project_scope,
+        tags=tags or [],
+        recursive=recursive,
+        max_files=max_files,
+    )
+
+
+@mcp.tool()
+async def niklas_context_pack(
+    question: str,
+    project_scope: Optional[str] = None,
+    limit: int = 8,
+    token: Optional[str] = None,
+) -> dict:
+    """Return a compact local context pack for a project question.
+
+    Args:
+        question: Natural-language question or search phrase.
+        project_scope: Optional project name to limit retrieval.
+        limit: Maximum number of graph nodes to include.
+        token: Optional bearer token.
+    """
+    _assert_authed(token)
+    return niklas_context_pack_impl(
+        question,
+        project_scope=project_scope,
+        limit=max(1, min(int(limit), 50)),
+    )
+
+
+@mcp.tool()
+async def niklas_find_duplicates(
+    project_scope: Optional[str] = None,
+    limit: int = 50,
+    token: Optional[str] = None,
+) -> list[dict]:
+    """Find exact duplicate local files by content hash.
+
+    Args:
+        project_scope: Optional project name to limit duplicate detection.
+        limit: Maximum duplicate groups to return.
+        token: Optional bearer token.
+    """
+    _assert_authed(token)
+    return NiklasStore().find_duplicates(
+        project_scope=project_scope,
+        limit=max(1, min(int(limit), 250)),
+    )
+
+
+@mcp.tool()
+async def niklas_get_node(node_id: str, token: Optional[str] = None) -> dict:
+    """Return a single Niklas graph node by ID."""
+    _assert_authed(token)
+    node = NiklasStore().get_node(node_id)
+    if not node:
+        return {"error": "not found", "node_id": node_id}
+    return node
+
+
+@mcp.tool()
+async def linear_search_issues(
+    query: str,
+    limit: int = 20,
+    token: Optional[str] = None,
+) -> list[dict]:
+    """Search Linear issues through LINEAR_ACCESS_TOKEN.
+
+    Args:
+        query: Text to search in Linear issue title or description.
+        limit: Maximum issues to return.
+        token: Optional bearer token.
+    """
+    _assert_authed(token)
+    return LinearClient().search_issues(query, limit=max(1, min(int(limit), 50)))
+
+
+@mcp.tool()
+async def linear_create_issue(
+    team_id: str,
+    title: str,
+    description: Optional[str] = None,
+    project_id: Optional[str] = None,
+    state_id: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Create a Linear issue through LINEAR_ACCESS_TOKEN.
+
+    This mutates Linear and therefore requires MCP_WRITE_TOKEN.
+    """
+    _assert_write_authed(token)
+    return LinearClient().create_issue(
+        team_id=team_id,
+        title=title,
+        description=description,
+        project_id=project_id,
+        state_id=state_id,
+    )
+
+
+@mcp.tool()
+async def linear_update_issue(
+    issue_id: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    state_id: Optional[str] = None,
+    assignee_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Update a Linear issue through LINEAR_ACCESS_TOKEN.
+
+    The issue_id can be a UUID or shorthand identifier such as ABC-123.
+    This mutates Linear and therefore requires MCP_WRITE_TOKEN.
+    """
+    _assert_write_authed(token)
+    input_data = {
+        "title": title,
+        "description": description,
+        "stateId": state_id,
+        "assigneeId": assignee_id,
+        "projectId": project_id,
+    }
+    return LinearClient().update_issue(issue_id, input_data)
+
+
+@mcp.tool()
+async def linear_link_asset(
+    asset_node_id: str,
+    issue_id: str,
+    issue_identifier: Optional[str] = None,
+    issue_title: Optional[str] = None,
+    issue_url: Optional[str] = None,
+    relationship_type: str = "linked-to-linear-issue",
+    token: Optional[str] = None,
+) -> dict:
+    """Link a Niklas asset/node to a Linear issue in the local graph.
+
+    This mutates the local SQLite graph and therefore requires MCP_WRITE_TOKEN.
+    """
+    _assert_write_authed(token)
+    return NiklasStore().link_linear_issue(
+        asset_node_id=asset_node_id,
+        issue_id=issue_id,
+        issue_identifier=issue_identifier,
+        issue_title=issue_title,
+        issue_url=issue_url,
+        relationship_type=relationship_type,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -701,7 +1035,7 @@ if __name__ == "__main__":
             disable_host_check = os.environ.get("MCP_DISABLE_HOST_CHECK", "true").lower() == "true"
             if disable_host_check:
                 mcp.settings.transport_security.enable_dns_rebinding_protection = False
-                print(f"[zeus-brain MCP] DNS rebinding protection DISABLED (LAN/Tailscale mode)", file=sys.stderr)
+                print(f"[niklas MCP] DNS rebinding protection DISABLED (LAN/Tailscale mode)", file=sys.stderr)
             else:
                 # Explicit allowlist mode: add LAN + Tailscale ranges
                 extra_hosts = os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if os.environ.get("MCP_ALLOWED_HOSTS") else []
@@ -709,11 +1043,11 @@ if __name__ == "__main__":
                 mcp.settings.transport_security.allowed_hosts = list(mcp.settings.transport_security.allowed_hosts) + extra_hosts
                 mcp.settings.transport_security.allowed_origins = list(mcp.settings.transport_security.allowed_origins) + extra_origins
         except Exception as e:
-            print(f"[zeus-brain MCP] WARN: could not configure transport_security: {e}", file=sys.stderr)
+            print(f"[niklas MCP] WARN: could not configure transport_security: {e}", file=sys.stderr)
 
         canonical_transport = "sse" if transport == "sse" else "streamable-http"
-        print(f"[zeus-brain MCP] starting on {host}:{port} ({canonical_transport})", file=sys.stderr)
-        print(f"[zeus-brain MCP] allowed_hosts now includes LAN + Tailscale ranges", file=sys.stderr)
+        print(f"[niklas MCP] starting on {host}:{port} ({canonical_transport})", file=sys.stderr)
+        print(f"[niklas MCP] allowed_hosts now includes LAN + Tailscale ranges", file=sys.stderr)
         mcp.run(transport=canonical_transport)
     else:
         raise ValueError(f"Unknown MCP_TRANSPORT: {transport!r}. Expected stdio | http | streamable-http | sse.")
