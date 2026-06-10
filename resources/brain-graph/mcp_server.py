@@ -70,6 +70,30 @@ if str(NIKLAS_RESOURCES_DIR) not in sys.path:
     sys.path.insert(0, str(NIKLAS_RESOURCES_DIR))
 
 from niklas.ingest import ingest_path as niklas_ingest_path_impl
+from niklas.bert_core import (
+    build_accept_payload as bert_accept_impl,
+    build_bert_on_payload as bert_on_impl,
+    build_doctor_payload as bert_doctor_impl,
+    build_first_read_payload as bert_first_read_impl,
+    build_next_payload as bert_next_impl,
+    build_stage_draft_payload as bert_stage_draft_impl,
+    build_linear_snapshot as bert_linear_snapshot_impl,
+    build_node_create_payload as bert_node_create_plan_impl,
+    build_node_locate_payload as bert_node_locate_impl,
+    build_node_map_payload as bert_node_map_impl,
+    build_node_spawn_children_payload as bert_node_spawn_children_plan_impl,
+    build_node_stages_payload as bert_node_stages_impl,
+    build_node_start_payload as bert_node_start_plan_impl,
+    build_node_template_payload as bert_node_template_impl,
+    build_project_analyze_payload as bert_project_analyze_impl,
+    build_project_create_payload as bert_project_create_plan_impl,
+    build_project_init_payload as bert_project_init_impl,
+    build_project_open_payload as bert_project_open_impl,
+    build_project_template_payload as bert_project_template_impl,
+    build_readiness_payload as bert_status_impl,
+    build_solve_payload as bert_solve_impl,
+    build_stage_dry_run as bert_stage_impl,
+)
 from niklas.linear import LinearClient
 from niklas.orientation import build_orientation as niklas_orientation_impl
 from niklas.retrieval import build_context_pack as niklas_context_pack_impl
@@ -1001,6 +1025,418 @@ async def linear_link_asset(
         issue_url=issue_url,
         relationship_type=relationship_type,
     )
+
+
+# ---------------------------------------------------------------------------
+# BERT pilot CLI/MCP tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def bert_on(
+    project: str = ".",
+    projects_root: Optional[str] = None,
+    task: Optional[str] = None,
+    linear_anchor: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Turn BERT on for a selected project folder and return the activation UX state."""
+    _assert_authed(token)
+    return bert_on_impl(
+        project,
+        projects_root=projects_root,
+        task=task,
+        linear_anchor=linear_anchor,
+    )
+
+
+@mcp.tool()
+async def bert_status(token: Optional[str] = None) -> dict:
+    """Return the shared BERT pilot readiness payload.
+
+    This is read-only and mirrors `bert status --json`.
+    """
+    _assert_authed(token)
+    return bert_status_impl()
+
+
+@mcp.tool()
+async def bert_doctor(token: Optional[str] = None) -> dict:
+    """Return BERT doctor checks and warnings.
+
+    This is read-only and mirrors `bert doctor --json`.
+    """
+    _assert_authed(token)
+    return bert_doctor_impl()
+
+
+@mcp.tool()
+async def bert_first_read(token: Optional[str] = None) -> dict:
+    """Return the current BERT first-read file list."""
+    _assert_authed(token)
+    return bert_first_read_impl()
+
+
+@mcp.tool()
+async def bert_solve(problem: str, token: Optional[str] = None) -> dict:
+    """Route a large problem through the BERT staged method as a dry-run."""
+    _assert_authed(token)
+    return bert_solve_impl(problem)
+
+
+@mcp.tool()
+async def bert_stage(
+    stage: str,
+    node: Optional[str] = None,
+    parent: Optional[str] = None,
+    linear_anchor: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Return a dry-run payload for one BERT stage.
+
+    Args:
+        stage: Stage command or id, such as setup, goal, research-scout,
+            expert-plans, handoff, 0, 1, 2, 3.
+        node: Durable node name or placeholder.
+        parent: Optional parent node/surface label.
+        linear_anchor: Optional Linear issue/project/initiative identifier.
+        token: Optional bearer token.
+    """
+    _assert_authed(token)
+    return bert_stage_impl(
+        stage,
+        node,
+        parent=parent,
+        linear_anchor=linear_anchor,
+    )
+
+
+@mcp.tool()
+async def bert_linear_snapshot(token: Optional[str] = None) -> dict:
+    """Return BERT Linear status, using live API when configured and local fallback otherwise."""
+    _assert_authed(token)
+    return bert_linear_snapshot_impl()
+
+
+@mcp.tool()
+async def bert_project_template(name: str = "<project name>", slug: Optional[str] = None, token: Optional[str] = None) -> dict:
+    """Return the BERT project scaffold template without writing files."""
+    _assert_authed(token)
+    return bert_project_template_impl(name, slug=slug)
+
+
+@mcp.tool()
+async def bert_project_analyze(
+    project: str,
+    projects_root: Optional[str] = None,
+    task: Optional[str] = None,
+    linear_anchor: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Analyze a folder before adopting it as a BERT project. Read-only."""
+    _assert_authed(token)
+    return bert_project_analyze_impl(
+        project,
+        projects_root=projects_root,
+        task=task,
+        linear_anchor=linear_anchor,
+    )
+
+
+@mcp.tool()
+async def bert_project_create_plan(
+    name: str,
+    slug: Optional[str] = None,
+    projects_root: Optional[str] = None,
+    linear_anchor: Optional[str] = None,
+    niklas_anchor: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Return the local BERT project create plan without applying filesystem writes."""
+    _assert_authed(token)
+    return bert_project_create_plan_impl(
+        name,
+        slug=slug,
+        projects_root=projects_root,
+        linear_anchor=linear_anchor,
+        niklas_anchor=niklas_anchor,
+        apply=False,
+    )
+
+
+@mcp.tool()
+async def bert_project_adopt(
+    project_path: str,
+    name: Optional[str] = None,
+    linear_anchor: Optional[str] = None,
+    niklas_anchor: Optional[str] = None,
+    apply: bool = False,
+    token: Optional[str] = None,
+) -> dict:
+    """Adopt a project folder as a BERT project (gated local write).
+
+    apply=False returns the adoption plan without touching the filesystem.
+    apply=True creates the hidden `.BERT` workspace (`.BERT/L1M1/MAP.md`,
+    `state.json`, stage folders) and requires the MCP_WRITE_TOKEN write
+    contract — the same gate as write_atom. The container folder gate is
+    enforced either way; existing files are never overwritten. Linear and
+    Niklas graph writes remain blocked regardless.
+    """
+    if apply:
+        _assert_write_authed(token)
+    else:
+        _assert_authed(token)
+    payload = bert_project_init_impl(
+        project_path,
+        name=name,
+        linear_anchor=linear_anchor,
+        niklas_anchor=niklas_anchor,
+        apply=apply,
+    )
+    if apply and payload.get("applied"):
+        _append_audit(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "operation": "bert_project_adopt",
+                "host_project_dir": payload.get("host_project_dir"),
+                "bert_workspace_dir": payload.get("bert_workspace_dir"),
+                "written_files": len(payload["applied"]["written_files"]),
+                "skipped_existing_files": len(payload["applied"]["skipped_existing_files"]),
+            }
+        )
+    return payload
+
+
+@mcp.tool()
+async def bert_project_open(
+    project: str,
+    projects_root: Optional[str] = None,
+    task: Optional[str] = None,
+    linear_anchor: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Open a BERT project packet and return local/Linear/Niklas orientation."""
+    _assert_authed(token)
+    return bert_project_open_impl(
+        project,
+        projects_root=projects_root,
+        task=task,
+        linear_anchor=linear_anchor,
+    )
+
+
+@mcp.tool()
+async def bert_node_template(node_path: str = "L1M1", token: Optional[str] = None) -> dict:
+    """Return the template for a BERT L/M node without writing files."""
+    _assert_authed(token)
+    return bert_node_template_impl(node_path)
+
+
+@mcp.tool()
+async def bert_node_create_plan(
+    node_id: str,
+    project: str,
+    parent_path: Optional[str] = None,
+    projects_root: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Return the local BERT node create plan without applying filesystem writes."""
+    _assert_authed(token)
+    return bert_node_create_plan_impl(
+        node_id,
+        project=project,
+        parent_path=parent_path,
+        projects_root=projects_root,
+        apply=False,
+    )
+
+
+@mcp.tool()
+async def bert_node_locate(
+    project: str,
+    parent_path: str = "L1M1",
+    node_id: Optional[str] = None,
+    step: Optional[int] = None,
+    task: Optional[str] = None,
+    projects_root: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Locate/propose the next BERT node without writing files."""
+    _assert_authed(token)
+    return bert_node_locate_impl(
+        project,
+        parent_path=parent_path,
+        node_id=node_id,
+        step=step,
+        task=task,
+        projects_root=projects_root,
+    )
+
+
+@mcp.tool()
+async def bert_node_start_plan(
+    project: str,
+    name: Optional[str] = None,
+    parent_path: str = "L1M1",
+    node_id: Optional[str] = None,
+    step: Optional[int] = None,
+    task: Optional[str] = None,
+    projects_root: Optional[str] = None,
+    init_project: bool = False,
+    token: Optional[str] = None,
+) -> dict:
+    """Return the guided BERT node start plan without applying local writes."""
+    _assert_authed(token)
+    return bert_node_start_plan_impl(
+        project,
+        name=name,
+        parent_path=parent_path,
+        node_id=node_id,
+        step=step,
+        task=task,
+        projects_root=projects_root,
+        init_project=init_project,
+        apply=False,
+    )
+
+
+@mcp.tool()
+async def bert_node_stages(
+    project: str,
+    node_path: str,
+    projects_root: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Return stage order/status for one BERT node."""
+    _assert_authed(token)
+    return bert_node_stages_impl(project, node_path=node_path, projects_root=projects_root)
+
+
+@mcp.tool()
+async def bert_node_map(
+    project: str,
+    node_path: str,
+    projects_root: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Read a BERT node MAP.md and return child-node candidates."""
+    _assert_authed(token)
+    return bert_node_map_impl(project, node_path=node_path, projects_root=projects_root)
+
+
+@mcp.tool()
+async def bert_node_spawn_children_plan(
+    project: str,
+    parent_path: str = "L1M1",
+    projects_root: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """Return a dry-run child-node spawn plan from a parent MAP.md."""
+    _assert_authed(token)
+    return bert_node_spawn_children_plan_impl(
+        project,
+        parent_path=parent_path,
+        projects_root=projects_root,
+        apply=False,
+    )
+
+
+@mcp.tool()
+async def bert_next(
+    project: str,
+    projects_root: Optional[str] = None,
+    token: Optional[str] = None,
+) -> dict:
+    """The 10-second UX: report the one next action for a BERT project.
+
+    Read-only. Returns current node, stage, latest draft version, who is
+    waiting on whom (agent_draft / erich_answers / erich_accept), and the
+    exact next command.
+    """
+    _assert_authed(token)
+    return bert_next_impl(project, projects_root=projects_root)
+
+
+@mcp.tool()
+async def bert_stage_draft(
+    project: str,
+    node_path: Optional[str] = None,
+    projects_root: Optional[str] = None,
+    apply: bool = False,
+    token: Optional[str] = None,
+) -> dict:
+    """Scaffold the next MDE draft for the current stage (gated local write).
+
+    apply=False returns the draft plan (target path, version, stage form)
+    without touching the filesystem. apply=True writes
+    `<Prefix>_<node>_V{n+1}.md` — never overwrites, carries the prior version
+    forward, embeds the parent `_seed.md` on a child's first brainstorm —
+    and requires the MCP_WRITE_TOKEN contract, same as write_atom.
+    """
+    if apply:
+        _assert_write_authed(token)
+    else:
+        _assert_authed(token)
+    payload = bert_stage_draft_impl(
+        project,
+        node_path=node_path,
+        projects_root=projects_root,
+        apply=apply,
+    )
+    if apply and payload.get("drafted"):
+        _append_audit(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "operation": "bert_stage_draft",
+                "project_dir": payload.get("project_dir"),
+                "node_path": payload.get("node_path"),
+                "stage": (payload.get("stage") or {}).get("folder"),
+                "artifact": (payload.get("artifact") or {}).get("path"),
+            }
+        )
+    return payload
+
+
+@mcp.tool()
+async def bert_accept(
+    project: str,
+    node_path: Optional[str] = None,
+    stage: Optional[str] = None,
+    projects_root: Optional[str] = None,
+    apply: bool = False,
+    token: Optional[str] = None,
+) -> dict:
+    """Acceptance gate for the current stage artifact (gated local write).
+
+    Stage complete = artifact accepted, not file-exists. apply=False reports
+    whether the latest draft would pass the gates (sequence, citation gate on
+    blueprint/MAP, altitude lint warn-only). apply=True stamps the artifact
+    `status: accepted`, records acceptance in `state.json` (v2 per-stage
+    records), and advances the derived current stage. Requires the
+    MCP_WRITE_TOKEN contract.
+    """
+    if apply:
+        _assert_write_authed(token)
+    else:
+        _assert_authed(token)
+    payload = bert_accept_impl(
+        project,
+        node_path=node_path,
+        stage=stage,
+        projects_root=projects_root,
+        apply=apply,
+    )
+    if apply and payload.get("accepted"):
+        _append_audit(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "operation": "bert_accept",
+                "project_dir": payload.get("project_dir"),
+                "node_path": payload.get("node_path"),
+                "stage": (payload.get("stage") or {}).get("folder"),
+                "artifact": (payload.get("artifact") or {}).get("path"),
+            }
+        )
+    return payload
 
 
 # ---------------------------------------------------------------------------
