@@ -30,11 +30,25 @@ def _assert_read_only(cypher: str) -> None:
         raise PermissionError("mutating")
 
 
-def _assert_authed(token: str | None, configured: str) -> None:
+def _http_header_auth_enabled(configured: str, transport: str) -> bool:
+    return bool(configured and transport in {"http", "streamable-http", "sse"})
+
+
+def _local_stdio_transport(transport: str) -> bool:
+    return transport == "stdio"
+
+
+def _assert_authed(token: str | None, configured: str, transport: str = "stdio") -> None:
     if not configured:
         return
-    if token != configured:
-        raise PermissionError("bad token")
+    if token == configured:
+        return
+    if token is None and (
+        _http_header_auth_enabled(configured, transport)
+        or _local_stdio_transport(transport)
+    ):
+        return
+    raise PermissionError("bad token")
 
 
 # ---------------------------------------------------------------------------
@@ -125,17 +139,35 @@ class TestTokenGate:
     def test_matching_token_accepted(self) -> None:
         _assert_authed("secret", configured="secret")
 
-    def test_wrong_token_rejected(self) -> None:
+    def test_wrong_token_rejected_on_stdio(self) -> None:
+        """An explicitly-supplied wrong token is rejected on every transport."""
         with pytest.raises(PermissionError):
-            _assert_authed("wrong", configured="secret")
+            _assert_authed("wrong", configured="secret", transport="stdio")
 
-    def test_missing_token_rejected_when_required(self) -> None:
+    def test_wrong_token_rejected_on_http(self) -> None:
         with pytest.raises(PermissionError):
-            _assert_authed(None, configured="secret")
+            _assert_authed("wrong", configured="secret", transport="http")
+
+    def test_missing_token_waived_on_local_stdio(self) -> None:
+        """Local stdio is same-user/same-machine trust: the read token protects
+        the network surface, so a missing token is waived on stdio.
+        (ADR 2026-06-11 / wiring plan A1 — this unblocked Claude-session calls.)
+        """
+        _assert_authed(None, configured="secret", transport="stdio")
+
+    def test_missing_token_waived_on_http_bearer(self) -> None:
+        """On HTTP transports the Authorization header authenticated the request
+        before tool code ran, so tool-level tokens are not required."""
+        _assert_authed(None, configured="secret", transport="streamable-http")
+
+    def test_missing_token_rejected_on_unknown_transport(self) -> None:
+        with pytest.raises(PermissionError):
+            _assert_authed(None, configured="secret", transport="ws")
 
     def test_empty_token_rejected_when_required(self) -> None:
+        """Empty string is an explicit (wrong) token, not a waiver."""
         with pytest.raises(PermissionError):
-            _assert_authed("", configured="secret")
+            _assert_authed("", configured="secret", transport="stdio")
 
 
 # ---------------------------------------------------------------------------

@@ -76,12 +76,32 @@ def test_http_header_auth_allows_tool_calls_without_token_arg(monkeypatch) -> No
     mcp_server._assert_authed(None)
 
 
-def test_stdio_read_auth_still_requires_tool_token(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_stdio_read_auth_waives_missing_token(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Local stdio is same-user trust — missing token is waived (ADR 2026-06-11).
+
+    Supersedes the pre-2026-06-11 contract where stdio callers had to pass the
+    read token per call; that gate blocked all Claude-session engine work.
+    """
+    monkeypatch.setattr(mcp_server, "NIKLAS_READ_TOKEN", "read-token")
+    monkeypatch.setenv("MCP_TRANSPORT", "stdio")
+
+    mcp_server._assert_authed(None)
+
+
+def test_stdio_read_auth_rejects_explicit_wrong_token(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setattr(mcp_server, "NIKLAS_READ_TOKEN", "read-token")
     monkeypatch.setenv("MCP_TRANSPORT", "stdio")
 
     with pytest.raises(PermissionError, match="invalid or missing token"):
-        mcp_server._assert_authed(None)
+        mcp_server._assert_authed("wrong-token")
+
+
+def test_unset_transport_defaults_to_stdio_waiver(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The Claude Code stdio registration sets no MCP_TRANSPORT — default is stdio."""
+    monkeypatch.setattr(mcp_server, "NIKLAS_READ_TOKEN", "read-token")
+    monkeypatch.delenv("MCP_TRANSPORT", raising=False)
+
+    mcp_server._assert_authed(None)
 
 
 def test_static_read_token_verifier_accepts_only_read_token(monkeypatch) -> None:  # type: ignore[no-untyped-def]

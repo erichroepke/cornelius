@@ -263,6 +263,10 @@ def _http_header_auth_enabled() -> bool:
     return bool(NIKLAS_READ_TOKEN and transport in {"http", "streamable-http", "sse"})
 
 
+def _local_stdio_transport() -> bool:
+    return os.environ.get("MCP_TRANSPORT", "stdio").lower() == "stdio"
+
+
 def _assert_authed(token: Optional[str]) -> None:
     """If NIKLAS_READ_TOKEN is configured, callers must match it.
 
@@ -270,12 +274,18 @@ def _assert_authed(token: Optional[str]) -> None:
     transport-level bearer auth is active, requests without a valid header are
     rejected before tool code runs, so individual tool calls do not need a
     duplicate token argument.
+
+    Local stdio transport is same-user/same-machine trust: the read token
+    exists to protect the network surface, so a missing token is waived on
+    stdio (ADR 2026-06-11). An explicitly-supplied wrong token is still
+    rejected on every transport. Writes remain gated by MCP_WRITE_TOKEN
+    regardless of transport.
     """
     if not NIKLAS_READ_TOKEN:
         return  # auth disabled
     if token == NIKLAS_READ_TOKEN:
         return
-    if token is None and _http_header_auth_enabled():
+    if token is None and (_http_header_auth_enabled() or _local_stdio_transport()):
         return
     raise PermissionError("niklas: invalid or missing token")
 
