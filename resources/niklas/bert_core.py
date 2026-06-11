@@ -12,7 +12,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .linear import LinearClient
+# Linear is session-managed (ADR 2026-06-11): bert_core never imports the
+# Linear API client. linear.py remains on disk for non-product use only.
 from .store import NiklasStore
 
 
@@ -1702,6 +1703,10 @@ def _infer_altitude(task: str | None) -> dict[str, Any]:
 
 
 def _linear_anchor_lookup(query: str, *, live: bool = True) -> dict[str, Any]:
+    """Linear is session-managed (ADR 2026-06-11): the engine never calls the
+    Linear API. The lookup returns guidance for the session, which runs the
+    actual search through its own Linear MCP and writes anchors back into
+    .BERT/state.json."""
     clean_query = query.strip()
     payload: dict[str, Any] = {
         "generated_at": utcnow(),
@@ -1709,12 +1714,13 @@ def _linear_anchor_lookup(query: str, *, live: bool = True) -> dict[str, Any]:
         "query": clean_query,
         "first_step": "look for an existing Linear Initiative or Project before creating a BERT link",
         "lookup_order": ["initiative", "project"],
-        "linear_api": "blocked_missing_token",
+        "linear_api": "session_managed",
         "matches": {"initiatives": [], "projects": []},
         "next": [
+            "Run this lookup in the session via the Linear MCP (the engine holds no Linear token by design).",
             "If an existing initiative fits, link this BERT project to that initiative.",
             "If an existing project fits, link this BERT project to that project and read its parent initiative.",
-            "If nothing fits, create the Linear artifact only after the tree-first fit check.",
+            "If nothing fits, create the Linear artifact only after the tree-first fit check, then record the IDs in .BERT/state.json.",
         ],
     }
     if not clean_query:
@@ -1723,43 +1729,6 @@ def _linear_anchor_lookup(query: str, *, live: bool = True) -> dict[str, Any]:
     if not live:
         payload["linear_api"] = "skipped"
         return payload
-    if not os.environ.get("LINEAR_ACCESS_TOKEN"):
-        return payload
-    try:
-        client = LinearClient()
-        data = client.graphql(
-            """
-            query BertAnchorLookup($query: String!, $first: Int!) {
-              initiatives(first: $first, filter: { name: { contains: $query } }) {
-                nodes {
-                  id
-                  name
-                  url
-                  status
-                  parentInitiatives { nodes { id name url } }
-                }
-              }
-              projects(first: $first, filter: { name: { contains: $query } }) {
-                nodes {
-                  id
-                  name
-                  url
-                  status { name type }
-                  initiatives { nodes { id name url } }
-                }
-              }
-            }
-            """,
-            {"query": clean_query, "first": 10},
-        )
-        payload["matches"] = {
-            "initiatives": data.get("initiatives", {}).get("nodes", []),
-            "projects": data.get("projects", {}).get("nodes", []),
-        }
-        payload["linear_api"] = "live"
-    except Exception as exc:  # noqa: BLE001 - project open should return blocked state, not crash.
-        payload["linear_api"] = "blocked_error"
-        payload["error"] = str(exc)
     return payload
 
 
@@ -2326,60 +2295,36 @@ def build_node_start_payload(
     }
 
 
+LINEAR_SNAPSHOT_FILENAME = ".linear-snapshot.json"
+
+
 def build_linear_snapshot(env: BertEnvironment | None = None, *, live: bool = True) -> dict[str, Any]:
+    """Linear tree state without calling the Linear API (ADR 2026-06-11).
+
+    Sources, in order: the session-written local snapshot file (the session
+    queries Linear through its own MCP and persists what the engine needs),
+    then the static .linear-config fallback. `live` is kept for signature
+    compatibility; there is no live API path anymore.
+    """
     env = env or BertEnvironment.default()
     config = read_linear_config(env.bert_mvp / ".linear-config")
     snapshot: dict[str, Any] = {
         "generated_at": utcnow(),
         "mode": READ_ONLY_MODE,
         "local_config": config,
-        "linear_api": "blocked_missing_token",
-        "live": None,
+        "linear_api": "session_managed",
+        "session_snapshot": None,
     }
     if not live:
         snapshot["linear_api"] = "skipped"
         return snapshot
-    if not os.environ.get("LINEAR_ACCESS_TOKEN"):
-        return snapshot
-    try:
-        client = LinearClient()
-        project_query = """
-        query BertRuntimeAdapterProject($id: String!) {
-          project(id: $id) {
-            id
-            name
-            url
-            status { name type }
-            targetDate
-            priority
-          }
-        }
-        """
-        initiative_query = """
-        query BertInitiative($id: String!) {
-          initiative(id: $id) {
-            id
-            name
-            url
-            status
-            health
-          }
-        }
-        """
-        snapshot["live"] = {
-            "project": client.graphql(
-                project_query,
-                {"id": "aafd05ed-75d7-448b-aaa7-1788330afc55"},
-            ).get("project"),
-            "initiative": client.graphql(
-                initiative_query,
-                {"id": "443320e5-cb63-4454-8b71-1050d779d2ba"},
-            ).get("initiative"),
-        }
-        snapshot["linear_api"] = "live"
-    except Exception as exc:  # noqa: BLE001 - payload should carry blocked state.
-        snapshot["linear_api"] = "blocked_error"
-        snapshot["error"] = str(exc)
+    snapshot_path = env.bert_mvp / LINEAR_SNAPSHOT_FILENAME
+    if snapshot_path.exists():
+        try:
+            snapshot["session_snapshot"] = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["session_snapshot_path"] = str(snapshot_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            snapshot["session_snapshot_error"] = str(exc)
     return snapshot
 
 
@@ -3234,8 +3179,8 @@ def build_readiness_payload(env: BertEnvironment | None = None) -> dict[str, Any
     if "No commits yet" in git["linear_buildout"]:
         warnings.append("BERT-LINEAR-BUILDOUT main repo has no commits yet and remains local/reference material.")
     linear = build_linear_snapshot(env)
-    if linear["linear_api"] != "live":
-        warnings.append(f"Linear API snapshot is {linear['linear_api']}; using local config fallback.")
+    if linear["linear_api"] not in {"session_managed", "skipped"}:
+        warnings.append(f"Linear snapshot is {linear['linear_api']}; using local config fallback.")
     mcp_payload = build_mcp_payload(env)
     if mcp_payload["source_installed"] and mcp_payload["daemon_reload_needed"] is True:
         warnings.append("Niklas MCP daemon needs reload before live clients discover BERT tools.")

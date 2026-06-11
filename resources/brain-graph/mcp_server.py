@@ -94,7 +94,8 @@ from niklas.bert_core import (
     build_solve_payload as bert_solve_impl,
     build_stage_dry_run as bert_stage_impl,
 )
-from niklas.linear import LinearClient
+# Linear is session-managed (ADR 2026-06-11): the engine never imports the
+# Linear API client. The linear_* tools below are redirect stubs.
 from niklas.orientation import build_orientation as niklas_orientation_impl
 from niklas.retrieval import build_context_pack as niklas_context_pack_impl
 from niklas.store import NiklasStore
@@ -946,21 +947,34 @@ async def niklas_get_node(node_id: str, token: Optional[str] = None) -> dict:
     return node
 
 
+def _linear_session_managed(action: str) -> dict:
+    """Linear is session-managed (ADR 2026-06-11): the engine never calls the
+    Linear API. These stubs redirect callers to the session's own Linear MCP."""
+    return {
+        "status": "session_managed",
+        "action": action,
+        "message": (
+            "Linear is operated only from the Claude Code / Codex session via its "
+            "Linear MCP (ADR 2026-06-11). The Niklas engine holds no Linear token. "
+            f"Run '{action}' through the session's Linear MCP, then record resulting "
+            "IDs locally via linear_link_asset or .BERT/state.json."
+        ),
+    }
+
+
 @mcp.tool()
 async def linear_search_issues(
     query: str,
     limit: int = 20,
     token: Optional[str] = None,
-) -> list[dict]:
-    """Search Linear issues through LINEAR_ACCESS_TOKEN.
+) -> dict:
+    """RETIRED — Linear is session-managed (ADR 2026-06-11).
 
-    Args:
-        query: Text to search in Linear issue title or description.
-        limit: Maximum issues to return.
-        token: Optional bearer token.
+    Returns a redirect to the session's Linear MCP. The engine never calls
+    the Linear API.
     """
     _assert_authed(token)
-    return LinearClient().search_issues(query, limit=max(1, min(int(limit), 50)))
+    return _linear_session_managed("search Linear issues")
 
 
 @mcp.tool()
@@ -972,18 +986,13 @@ async def linear_create_issue(
     state_id: Optional[str] = None,
     token: Optional[str] = None,
 ) -> dict:
-    """Create a Linear issue through LINEAR_ACCESS_TOKEN.
+    """RETIRED — Linear is session-managed (ADR 2026-06-11).
 
-    This mutates Linear and therefore requires MCP_WRITE_TOKEN.
+    Returns a redirect to the session's Linear MCP. The engine never calls
+    the Linear API.
     """
-    _assert_write_authed(token)
-    return LinearClient().create_issue(
-        team_id=team_id,
-        title=title,
-        description=description,
-        project_id=project_id,
-        state_id=state_id,
-    )
+    _assert_authed(token)
+    return _linear_session_managed("create a Linear issue")
 
 
 @mcp.tool()
@@ -996,20 +1005,13 @@ async def linear_update_issue(
     project_id: Optional[str] = None,
     token: Optional[str] = None,
 ) -> dict:
-    """Update a Linear issue through LINEAR_ACCESS_TOKEN.
+    """RETIRED — Linear is session-managed (ADR 2026-06-11).
 
-    The issue_id can be a UUID or shorthand identifier such as ABC-123.
-    This mutates Linear and therefore requires MCP_WRITE_TOKEN.
+    Returns a redirect to the session's Linear MCP. The engine never calls
+    the Linear API.
     """
-    _assert_write_authed(token)
-    input_data = {
-        "title": title,
-        "description": description,
-        "stateId": state_id,
-        "assigneeId": assignee_id,
-        "projectId": project_id,
-    }
-    return LinearClient().update_issue(issue_id, input_data)
+    _assert_authed(token)
+    return _linear_session_managed("update a Linear issue")
 
 
 @mcp.tool()

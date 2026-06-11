@@ -5,13 +5,13 @@
 # DO NOT modify Brain on Studio — changes won't sync back. Use MCP write endpoint
 # (Phase 7) or edit on laptop.
 #
-# Cron schedule: 4am MT daily via launchd (com.zeus-brain.sync-to-studio.plist).
+# Cron schedule: 4am MT daily via launchd (com.niklas.sync-to-studio.plist).
 # Manual run: ./sync-brain-to-studio.sh
 
 set -euo pipefail
 
 LOG_FILE="/tmp/sync-brain-to-studio.log"
-SOURCE="/Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain/"
+SOURCE="/Users/erichroepke/Desktop/Niklas/Brain/"
 DEST="studio:~/Desktop/Brain-replica/"
 
 # Pre-flight: ensure Studio reachable on LAN
@@ -47,7 +47,8 @@ else
 fi
 
 # Verify atom count parity (best-effort)
-LOCAL_COUNT=$(find /Users/erichroepke/Desktop/ZEUS-BRAIN-STARTUP-2026-05-17/Brain -type f -name "*.md" -not -path "*/.git/*" | wc -l | tr -d ' ')
+# -L: Brain is a symlink to 01-Brain; without it find returns 0
+LOCAL_COUNT=$(find -L /Users/erichroepke/Desktop/Niklas/Brain -type f -name "*.md" -not -path "*/.git/*" | wc -l | tr -d ' ')
 REMOTE_COUNT=$(ssh studio "find ~/Desktop/Brain-replica -type f -name '*.md' -not -path '*/.git/*' 2>/dev/null | wc -l" | tr -d ' ')
 echo "[$(date -Iseconds)] Atom parity: laptop=$LOCAL_COUNT studio=$REMOTE_COUNT" | tee -a "$LOG_FILE"
 

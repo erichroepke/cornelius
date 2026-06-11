@@ -102,7 +102,7 @@ def test_readiness_payload_uses_temp_roots_and_dry_run_mode(tmp_path: Path, monk
 
     assert payload["mode"] == "read_only_dry_run"
     assert payload["write_enabled"] is False
-    assert payload["linear"]["linear_api"] == "blocked_missing_token"
+    assert payload["linear"]["linear_api"] == "session_managed"
     assert payload["niklas"]["mcp"]["source_installed"] is True
     assert payload["failures"] == []
     assert any(stage["command"] == "setup" for stage in payload["stages"])
@@ -131,14 +131,32 @@ def test_stage_dry_run_never_enables_writes(tmp_path: Path) -> None:
     }
 
 
-def test_linear_snapshot_falls_back_without_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LINEAR_ACCESS_TOKEN", raising=False)
+def test_linear_snapshot_is_session_managed_even_with_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADR 2026-06-11: the engine never calls the Linear API — even when a
+    LINEAR_ACCESS_TOKEN is present in the environment."""
+    monkeypatch.setenv("LINEAR_ACCESS_TOKEN", "should-never-be-used")
     env = make_env(tmp_path)
 
     payload = build_linear_snapshot(env)
 
-    assert payload["linear_api"] == "blocked_missing_token"
+    assert payload["linear_api"] == "session_managed"
     assert payload["local_config"]["values"]["root_initiative"] == "BERT"
+    assert payload["session_snapshot"] is None
+
+
+def test_linear_snapshot_reads_session_written_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The session queries Linear via its own MCP and persists a local snapshot
+    file; build_linear_snapshot surfaces it without touching the API."""
+    monkeypatch.delenv("LINEAR_ACCESS_TOKEN", raising=False)
+    env = make_env(tmp_path)
+    (env.bert_mvp / ".linear-snapshot.json").write_text(
+        '{"initiative": {"id": "abc", "name": "BERT GMVP"}}', encoding="utf-8"
+    )
+
+    payload = build_linear_snapshot(env)
+
+    assert payload["linear_api"] == "session_managed"
+    assert payload["session_snapshot"]["initiative"]["name"] == "BERT GMVP"
 
 
 def test_mcp_payload_reports_expected_bert_tools(tmp_path: Path) -> None:
@@ -235,8 +253,8 @@ def test_project_init_creates_hidden_bert_workspace(tmp_path: Path, monkeypatch:
     assert opened["position"]["hierarchy_source_of_truth"] == "local_bert_packet"
     assert opened["linear_lookup"]["query"] == "Some Linear Project"
     assert opened["linear_lookup"]["lookup_order"] == ["initiative", "project"]
-    assert opened["linear_lookup"]["linear_api"] == "blocked_missing_token"
-    assert opened["position"]["linear_anchor_lookup"] == "blocked_missing_token"
+    assert opened["linear_lookup"]["linear_api"] == "session_managed"
+    assert opened["position"]["linear_anchor_lookup"] == "session_managed"
     assert opened["niklas_lookup"]["correlation_status"] == "blocked_db_missing"
     assert opened["position"]["niklas_correlation"] == "blocked_db_missing"
     assert opened["bert_process"]["state"] == "in_progress"
