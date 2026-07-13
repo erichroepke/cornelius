@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from typing import Any
 
 from .cli_factory import build_cli_catalog, render_markdown_catalog, write_catalog
@@ -56,6 +57,37 @@ def main() -> None:
     orient.add_argument("--format", choices=["json", "markdown"], default="json")
 
     sub.add_parser("status", help="Show graph status")
+
+    locate = sub.add_parser("locate", help="Resolve a source asset to its current path")
+    locate.add_argument("identifier", help="Source asset id, node id, or current path")
+    locate.add_argument("--events", type=int, default=10, help="Number of recent path events to return")
+
+    sync = sub.add_parser("sync", help="Verify and repair source asset locations")
+    sync_sub = sync.add_subparsers(dest="sync_command", required=True)
+    sync_once = sync_sub.add_parser("once", help="Run one source asset sync pass")
+    sync_watch = sync_sub.add_parser("watch", help="Continuously sync source asset locations")
+    for sync_parser in (sync_once, sync_watch):
+        sync_parser.add_argument("--root-id", help="Only sync assets under this source root")
+        sync_parser.add_argument("--limit", type=int, help="Maximum number of assets to check")
+        sync_parser.add_argument("--scan-depth", type=int, default=1, help="Bounded nearby scan depth for missing paths")
+        sync_parser.add_argument(
+            "--max-candidates",
+            type=int,
+            default=500,
+            help="Maximum files to inspect per nearby scan",
+        )
+        sync_parser.add_argument(
+            "--record-verified",
+            action="store_true",
+            help="Append verified events for unchanged available assets",
+        )
+        sync_parser.add_argument(
+            "--verify-existing-hashes",
+            action="store_true",
+            help="Hash available files too; expensive for large media assets",
+        )
+    sync_watch.add_argument("--interval", type=float, default=30.0, help="Seconds between sync passes")
+    sync_watch.add_argument("--iterations", type=int, help="Stop after this many passes")
 
     dupes = sub.add_parser("duplicates", help="Find duplicate files")
     dupes.add_argument("--project")
@@ -155,6 +187,48 @@ def main() -> None:
         out = NiklasStore(args.db).find_duplicates(project_scope=args.project, limit=args.limit)
     elif args.command == "status":
         out = NiklasStore(args.db).status()
+    elif args.command == "locate":
+        out = NiklasStore(args.db).locate_source_asset(args.identifier, event_limit=args.events)
+        if out is None:
+            out = {
+                "identifier": args.identifier,
+                "status": "not-found",
+                "current_path": None,
+                "events": [],
+            }
+    elif args.command == "sync":
+        store = NiklasStore(args.db)
+        if args.sync_command == "once":
+            out = store.sync_source_assets_once(
+                root_id=args.root_id,
+                limit=args.limit,
+                scan_depth=args.scan_depth,
+                max_candidates=args.max_candidates,
+                verify_existing_hashes=args.verify_existing_hashes,
+                record_verified=args.record_verified,
+            )
+        elif args.sync_command == "watch":
+            iteration = 0
+            try:
+                while args.iterations is None or iteration < args.iterations:
+                    iteration += 1
+                    out = store.sync_source_assets_once(
+                        root_id=args.root_id,
+                        limit=args.limit,
+                        scan_depth=args.scan_depth,
+                        max_candidates=args.max_candidates,
+                        verify_existing_hashes=args.verify_existing_hashes,
+                        record_verified=args.record_verified,
+                    )
+                    out["iteration"] = iteration
+                    print(json.dumps(out), flush=True)
+                    if args.iterations is not None and iteration >= args.iterations:
+                        return
+                    time.sleep(max(args.interval, 1.0))
+            except KeyboardInterrupt:
+                return
+        else:
+            raise SystemExit(f"unknown sync command: {args.sync_command}")
     elif args.command == "relation":
         store = NiklasStore(args.db)
         if args.relation_command == "create":

@@ -48,6 +48,7 @@ PREVIEW_CHARS = 1200
 @dataclass
 class IngestedFile:
     node_id: str
+    source_asset_id: str
     path: str
     type: str
     title: str
@@ -233,7 +234,19 @@ def ingest_file(
         summary = f"{mime_type} asset, {stat.st_size} bytes"
 
     node_type = infer_node_type(file_path, frontmatter)
-    node_id = stable_id("file", str(file_path.resolve(strict=False)), 24)
+    absolute_path = str(file_path.resolve(strict=False))
+    source_asset = store.resolve_source_asset_for_file(
+        absolute_path=absolute_path,
+        content_hash=content_hash,
+        size_bytes=stat.st_size,
+        node_type=node_type,
+        project=project_scope,
+        mime_type=mime_type,
+        extension=ext,
+    )
+    node_id = source_asset["node_id"]
+    metadata["source_asset_id"] = source_asset["asset_id"]
+    metadata["source_asset_resolution"] = source_asset.get("resolution_event")
     modified_at = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
 
     store.upsert_node(
@@ -241,7 +254,7 @@ def ingest_file(
         node_type=node_type,
         title=title,
         path=relative_path,
-        absolute_path=str(file_path.resolve(strict=False)),
+        absolute_path=absolute_path,
         project=project_scope,
         mime_type=mime_type,
         extension=ext,
@@ -260,7 +273,14 @@ def ingest_file(
         confidence=1.0,
         metadata={"root": str(root)},
     )
-    return IngestedFile(node_id, relative_path, node_type, title, content_hash), links
+    return IngestedFile(
+        node_id,
+        source_asset["asset_id"],
+        relative_path,
+        node_type,
+        title,
+        content_hash,
+    ), links
 
 
 def is_textual(path: Path) -> bool:

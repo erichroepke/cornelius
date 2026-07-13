@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NIKLAS Source Sync — launchd job for active source-asset path repair.
+
+  Install:
+    cp this file to ~/Library/LaunchAgents/com.niklas.source-sync.plist
+    launchctl load ~/Library/LaunchAgents/com.niklas.source-sync.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.niklas.source-sync.plist
+    rm ~/Library/LaunchAgents/com.niklas.source-sync.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.niklas.source-sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/erichroepke/Desktop/Niklas/03-Runtime/Cornelius/resources/local-brain-search/venv/bin/python</string>
+        <string>-m</string>
+        <string>niklas.cli</string>
+        <string>sync</string>
+        <string>watch</string>
+        <string>--interval</string>
+        <string>60</string>
+        <string>--scan-depth</string>
+        <string>1</string>
+        <string>--max-candidates</string>
+        <string>500</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/erichroepke/Desktop/Niklas/03-Runtime/Cornelius/resources</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/erichroepke</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/niklas-source-sync.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/niklas-source-sync.err.log</string>
+</dict>
+</plist>

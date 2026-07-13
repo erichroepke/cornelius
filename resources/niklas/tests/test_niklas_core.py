@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,274 @@ def test_duplicate_detection_uses_content_hash(tmp_path: Path) -> None:
     assert len(duplicates) == 1
     assert duplicates[0]["kind"] == "exact-content-hash"
     assert duplicates[0]["count"] == 2
+
+
+def test_source_asset_reuses_node_after_move(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    original = project / "master.md"
+    original.write_text(
+        "---\ntitle: Original Master File\ntags: [resolver]\n---\n"
+        "# Original Master File\n\n"
+        "Find the current master file location after a move.\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "niklas.sqlite"
+
+    ingest_path(project, project_scope="Resolver", recursive=True, db_path=db_path)
+    store = NiklasStore(db_path)
+    first = store.locate_source_asset(str(original))
+    assert first is not None
+    asset_id = first["asset_id"]
+    node_id = first["node_id"]
+
+    moved = project / "renamed-master.md"
+    original.rename(moved)
+    ingest_path(project, project_scope="Resolver", recursive=True, db_path=db_path)
+
+    located = store.locate_source_asset(asset_id)
+    assert located is not None
+    assert located["asset_id"] == asset_id
+    assert located["node_id"] == node_id
+    assert located["current_path"] == str(moved.resolve(strict=False))
+    assert any(event["event_type"] == "moved" for event in located["events"])
+
+    node = store.get_node(node_id)
+    assert node is not None
+    assert node["absolute_path"] == str(moved.resolve(strict=False))
+    assert node["metadata"]["source_asset_id"] == asset_id
+
+    pack = build_context_pack("current master file location", project_scope="Resolver", db_path=db_path)
+    hit = next(node for node in pack["nodes"] if node["id"] == node_id)
+    assert hit["absolute_path"] == str(moved.resolve(strict=False))
+
+
+def test_source_asset_sync_once_detects_move_without_reingest(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    original = project / "master.md"
+    original.write_text("# Master\n\nSync should find this after rename.\n", encoding="utf-8")
+    db_path = tmp_path / "niklas.sqlite"
+
+    ingest_path(original, project_scope="Resolver", db_path=db_path)
+    store = NiklasStore(db_path)
+    first = store.locate_source_asset(str(original))
+    assert first is not None
+
+    moved = project / "renamed-master.md"
+    original.rename(moved)
+    sync = store.sync_source_assets_once(scan_depth=1, max_candidates=50)
+
+    assert sync["assets_checked"] == 1
+    assert sync["moved"] == 1
+    located = store.locate_source_asset(first["asset_id"])
+    assert located is not None
+    assert located["asset_id"] == first["asset_id"]
+    assert located["node_id"] == first["node_id"]
+    assert located["current_path"] == str(moved.resolve(strict=False))
+    assert any(event["event_type"] == "moved" for event in located["events"])
+
+    node = store.get_node(first["node_id"])
+    assert node is not None
+    assert node["absolute_path"] == str(moved.resolve(strict=False))
+
+
+def test_source_asset_copy_candidate_keeps_distinct_asset(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    original = project / "master.md"
+    original.write_text("# Master\n\nSame bytes stay in the original.\n", encoding="utf-8")
+    copy = project / "master-copy.md"
+    db_path = tmp_path / "niklas.sqlite"
+
+    ingest_path(original, project_scope="Resolver", db_path=db_path)
+    shutil.copy2(original, copy)
+    ingest_path(copy, project_scope="Resolver", db_path=db_path)
+
+    store = NiklasStore(db_path)
+    original_asset = store.locate_source_asset(str(original))
+    copy_asset = store.locate_source_asset(str(copy))
+
+    assert original_asset is not None
+    assert copy_asset is not None
+    assert original_asset["asset_id"] != copy_asset["asset_id"]
+    assert original_asset["node_id"] != copy_asset["node_id"]
+    assert any(event["event_type"] == "copy-candidate" for event in copy_asset["events"])
+
+
+def test_locate_falls_back_to_strada_alias_when_local_root_missing(tmp_path: Path) -> None:
+    local_root = tmp_path / "MASTER 140 TB 1"
+    strada_root = tmp_path / "StradaConnect" / "Erich-M4-Max" / "MASTER 140 TB 1"
+    relative = Path("2026") / "06-2026 FILMS Jimmy Chin" / "master.md"
+    local_file = local_root / relative
+    strada_file = strada_root / relative
+    local_file.parent.mkdir(parents=True)
+    local_file.write_text("# Master\n\nResolve this through Strada.\n", encoding="utf-8")
+    db_path = tmp_path / "niklas.sqlite"
+    store = NiklasStore(db_path)
+    store.register_source_root_alias(
+        root_id="master-140-test",
+        base_path=str(local_root),
+        alias_kind="local",
+        priority=10,
+    )
+    store.register_source_root_alias(
+        root_id="master-140-test",
+        base_path=str(strada_root),
+        alias_kind="strada-connect",
+        priority=20,
+    )
+
+    ingest_path(local_file, project_scope="Resolver", db_path=db_path)
+    first = store.locate_source_asset(str(local_file))
+    assert first is not None
+    assert first["root_id"] == "master-140-test"
+    assert first["relative_path"] == str(relative)
+
+    strada_file.parent.mkdir(parents=True)
+    shutil.copy2(local_file, strada_file)
+    shutil.rmtree(local_root)
+
+    located = store.locate_source_asset(first["asset_id"])
+    assert located is not None
+    assert located["resolution_status"] == "strada-available"
+    assert located["preferred_uri"] == str(strada_file.resolve(strict=False))
+    assert located["local_path"] is None
+    assert located["strada_path"] == str(strada_file.resolve(strict=False))
+    assert any(step["step"] == "strada-connect-alias" and step["status"] == "available" for step in located["lookup_steps"])
+
+
+def test_sync_once_updates_asset_to_strada_alias_when_local_root_missing(tmp_path: Path) -> None:
+    local_root = tmp_path / "MASTER 140 TB 1"
+    strada_root = tmp_path / "StradaConnect" / "Erich-M4-Max" / "MASTER 140 TB 1"
+    relative = Path("2026") / "06-2026 FILMS Jimmy Chin" / "master.md"
+    local_file = local_root / relative
+    strada_file = strada_root / relative
+    local_file.parent.mkdir(parents=True)
+    local_file.write_text("# Master\n\nSync this through Strada.\n", encoding="utf-8")
+    db_path = tmp_path / "niklas.sqlite"
+    store = NiklasStore(db_path)
+    store.register_source_root_alias(
+        root_id="master-140-test",
+        base_path=str(local_root),
+        alias_kind="local",
+        priority=10,
+    )
+    store.register_source_root_alias(
+        root_id="master-140-test",
+        base_path=str(strada_root),
+        alias_kind="strada-connect",
+        priority=20,
+    )
+
+    ingest_path(local_file, project_scope="Resolver", db_path=db_path)
+    first = store.locate_source_asset(str(local_file))
+    assert first is not None
+    strada_file.parent.mkdir(parents=True)
+    shutil.copy2(local_file, strada_file)
+    shutil.rmtree(local_root)
+
+    sync = store.sync_source_assets_once(root_id="master-140-test", scan_depth=1, max_candidates=50)
+    assert sync["moved"] == 1
+    located = store.locate_source_asset(first["asset_id"])
+    assert located is not None
+    assert located["current_path"] == str(strada_file.resolve(strict=False))
+    assert located["resolution_status"] == "local-available"
+    assert any(event["event_type"] == "moved" for event in located["events"])
+
+
+def test_locate_cli_resolves_source_asset_by_asset_and_node(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "clip-note.md"
+    source.write_text("# Clip Note\n\nCLI locate should resolve this file.\n", encoding="utf-8")
+    db_path = tmp_path / "niklas.sqlite"
+    ingest_path(source, project_scope="Resolver", db_path=db_path)
+
+    store = NiklasStore(db_path)
+    located = store.locate_source_asset(str(source))
+    assert located is not None
+    resources_root = Path(__file__).resolve().parents[2]
+
+    by_asset = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "niklas.cli",
+            "--db",
+            str(db_path),
+            "locate",
+            located["asset_id"],
+        ],
+        cwd=resources_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    by_node = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "niklas.cli",
+            "--db",
+            str(db_path),
+            "locate",
+            located["node_id"],
+        ],
+        cwd=resources_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    asset_payload = json.loads(by_asset.stdout)
+    node_payload = json.loads(by_node.stdout)
+    assert asset_payload["asset_id"] == located["asset_id"]
+    assert node_payload["asset_id"] == located["asset_id"]
+    assert asset_payload["current_path"] == str(source.resolve(strict=False))
+    assert node_payload["current_path"] == str(source.resolve(strict=False))
+
+
+def test_sync_cli_once_repairs_moved_asset(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "clip-note.md"
+    source.write_text("# Clip Note\n\nCLI sync should repair this file.\n", encoding="utf-8")
+    db_path = tmp_path / "niklas.sqlite"
+    ingest_path(source, project_scope="Resolver", db_path=db_path)
+
+    store = NiklasStore(db_path)
+    located = store.locate_source_asset(str(source))
+    assert located is not None
+    moved = project / "clip-note-renamed.md"
+    source.rename(moved)
+    resources_root = Path(__file__).resolve().parents[2]
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "niklas.cli",
+            "--db",
+            str(db_path),
+            "sync",
+            "once",
+            "--scan-depth",
+            "1",
+            "--max-candidates",
+            "50",
+        ],
+        cwd=resources_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["moved"] == 1
+    repaired = store.locate_source_asset(located["asset_id"])
+    assert repaired is not None
+    assert repaired["current_path"] == str(moved.resolve(strict=False))
 
 
 def test_relation_nodes_support_edge_to_edge_metadata(tmp_path: Path) -> None:
